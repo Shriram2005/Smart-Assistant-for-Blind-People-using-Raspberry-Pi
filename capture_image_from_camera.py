@@ -23,7 +23,7 @@ while True:
             string = pytesseract.image_to_string('saved_img.jpg')
             print(string)
 
-            engine.setProperty('rate', 125) 
+            engine.setProperty('rate', 115)
             engine.say("hi")
             engine.say(string)
             engine.runAndWait()
