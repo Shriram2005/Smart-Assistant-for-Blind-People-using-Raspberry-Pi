@@ -31,12 +31,12 @@ while True:
         cv2.imshow("Capturing", frame)
         key = cv2.waitKey(1)
         if key == ord('z'):
-            cv2.imwrite(filename='saved_img.jpg', img=frame)
+            cv2.imwrite(filename='../saved_img.jpg', img=frame)
             webcam.release()
             cv2.destroyAllWindows()
 
             # Capture text from the image
-            captured_text = capture_text('saved_img.jpg')
+            captured_text = capture_text('../saved_img.jpg')
             print("Captured Text:", captured_text)
 
             # Translate the captured text

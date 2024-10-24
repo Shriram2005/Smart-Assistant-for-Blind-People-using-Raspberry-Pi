@@ -16,7 +16,7 @@ while True:
         cv2.imshow("Capturing", frame)
         key = cv2.waitKey(1)
         if key == ord('z'):
-            cv2.imwrite(filename='saved_img.jpg', img=frame)
+            cv2.imwrite(filename='../saved_img.jpg', img=frame)
             webcam.release()
             # pytesseract.pytesseract.tesseract_cmd = r'C:\Users\LENOVO\AppData\Tesseract_OCR\tesseract.exe'
             pytesseract.pytesseract.tesseract_cmd = r'C:\Users\Shriram\AppData\Local\Programs\Tesseract-OCR\tesseract.exe'
