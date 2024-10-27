@@ -22,6 +22,7 @@ translated_text_audio_path_1 = "translated_audio_1.mp3"
 translated_text_audio_path_2 = "translated_audio_2.mp3"
 capture_audio_path = "capture_sound.mp3"
 no_text_audio_path = "no_text_found.mp3"
+translation_complete_audio_path = "translation_complete.mp3"
 
 # State to track button presses in the sequence
 button_press_count = 0
@@ -36,6 +37,10 @@ capture_feedback.save(capture_audio_path)
 # Audio feedback for no text found
 no_text_feedback = gTTS("No text found", lang="en")
 no_text_feedback.save(no_text_audio_path)
+
+# Audio feedback for translation complete
+translation_complete_feedback = gTTS("Translation complete", lang="en")
+translation_complete_feedback.save(translation_complete_audio_path)
 
 def capture_and_translate(target_lang1='mr', target_lang2='hi'):
     print("Capturing image...")
@@ -83,6 +88,9 @@ def capture_and_translate(target_lang1='mr', target_lang2='hi'):
         tts_translated_2.save(translated_text_audio_path_2)
 
         print("Text translation and audio generation complete.")
+
+        # Play translation complete audio
+        os.system(f"mpg123 {translation_complete_audio_path}")
 
     except Exception as e:
         print(f"Translation Error: {e}")
