@@ -20,12 +20,22 @@ GPIO.setup(BUTTON_PIN, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)  # Pull-down resisto
 original_text_audio_path = "original_audio.mp3"
 translated_text_audio_path_1 = "translated_audio_1.mp3"
 translated_text_audio_path_2 = "translated_audio_2.mp3"
+capture_audio_path = "capture_sound.mp3"
+no_text_audio_path = "no_text_found.mp3"
 
 # State to track button presses in the sequence
 button_press_count = 0
 
 # Initialize the Picamera2
 camera = Picamera2()
+
+# Audio feedback for image capture
+capture_feedback = gTTS("Image captured", lang="en")
+capture_feedback.save(capture_audio_path)
+
+# Audio feedback for no text found
+no_text_feedback = gTTS("No text found", lang="en")
+no_text_feedback.save(no_text_audio_path)
 
 def capture_and_translate(target_lang1='mr', target_lang2='hi'):
     print("Capturing image...")
@@ -36,13 +46,22 @@ def capture_and_translate(target_lang1='mr', target_lang2='hi'):
     time.sleep(2)  # Give time for the camera to adjust
     camera.capture_file(image_path)
     camera.stop()
+
+    # Play capture sound to indicate the image was captured
+    os.system(f"mpg123 {capture_audio_path}")
     print("Image captured! Extracting text...")
 
     # Perform OCR to extract text from the image
     extracted_text = pytesseract.image_to_string(image_path)
     # Remove line breaks and commas
-    extracted_text = " ".join(extracted_text.replace(",", "").splitlines())
+    extracted_text = " ".join(extracted_text.replace(",", "").splitlines()).strip()
     print(f"Extracted Text: {extracted_text}")
+
+    # Check if any text was found
+    if not extracted_text:
+        print("No text found in the image.")
+        os.system(f"mpg123 {no_text_audio_path}")
+        return False
 
     # Save audio in the original language
     tts_original = gTTS(extracted_text, lang='en')  # Adjust the source language as needed
@@ -108,7 +127,7 @@ def wait_for_button_press():
             handle_button_press()
             time.sleep(1)  # Debounce delay
 
-# Run the button listening function
+# Run the button listening function in an infinite loop
 try:
     wait_for_button_press()
 except KeyboardInterrupt:
