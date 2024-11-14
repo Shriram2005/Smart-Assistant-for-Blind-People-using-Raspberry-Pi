@@ -1,9 +1,0 @@
-
-
-
-pip3 install pytesseract
-pip3 install pyttsx3
-
-
-
-https://pypi.org/project/opencv-python/
