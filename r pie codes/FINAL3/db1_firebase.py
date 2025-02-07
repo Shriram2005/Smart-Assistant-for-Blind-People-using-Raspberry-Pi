@@ -248,24 +248,29 @@ def handle_button_press():
         time.sleep(2)
         button_press_count = 0
 
+import base64
+
 def store_in_firestore(image_path, original_text, english_text, hindi_text, marathi_text):
     # Read the image file
     with open(image_path, "rb") as image_file:
         image_data = image_file.read()
-
+    
+    # Encode image data to base64
+    encoded_image = base64.b64encode(image_data).decode('utf-8')
+    
     # Generate a unique document ID
     doc_ref = db.collection('captured_images').document()
-
+    
     # Create a dictionary to store the data
     data = {
-        'image': firestore.Blob(image_data),
+        'image': encoded_image,
         'original_text': original_text,
         'english_translation': english_text,
         'hindi_translation': hindi_text,
         'marathi_translation': marathi_text,
         'timestamp': firestore.SERVER_TIMESTAMP
     }
-
+    
     # Write the data to Firestore
     doc_ref.set(data)
     print(f"Data stored in Firestore with ID: {doc_ref.id}")
