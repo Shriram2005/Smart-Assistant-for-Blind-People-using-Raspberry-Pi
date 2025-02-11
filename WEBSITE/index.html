@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OCR Translation Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .card {
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .card-img-top {
+            max-height: 300px;
+            object-fit: contain;
+            background-color: #f8f9fa;
+            padding: 10px;
+        }
+        .translation-text {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            font-family: 'Noto Sans', Arial, sans-serif;
+        }
+        .timestamp {
+            font-size: 0.8rem;
+            color: #6c757d;
+        }
+        #loading {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            display: none;
+        }
+        .language-label {
+            font-weight: bold;
+            color: #0d6efd;
+            margin-bottom: 5px;
+        }
+    </style>
+    <!-- Add Noto Sans font for better multilingual support -->
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar navbar-dark bg-primary">
+        <div class="container">
+            <span class="navbar-brand mb-0 h1">OCR Translation Dashboard</span>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <div id="loading" class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+        <div id="error-message" class="alert alert-danger d-none" role="alert"></div>
+        <div id="translations" class="row"></div>
+    </div>
+
+    <script>
+        const loadTranslations = async () => {
+            const loading = document.getElementById('loading');
+            const errorMessage = document.getElementById('error-message');
+            const translationsContainer = document.getElementById('translations');
+
+            try {
+                loading.style.display = 'block';
+                errorMessage.classList.add('d-none');
+
+                const response = await fetch('db_connect.php');
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const text = await response.text();
+                console.log('Raw server response:', text); // Debug log
+                
+                let data;
+                try {
+                    data = JSON.parse(text);
+                } catch (e) {
+                    console.error('JSON Parse Error:', e);
+                    console.error('Raw response:', text);
+                    throw new Error(`Failed to parse JSON response: ${e.message}`);
+                }
+
+                if (data.status === 'success') {
+                    if (data.data.length === 0) {
+                        translationsContainer.innerHTML = `
+                            <div class="col-12">
+                                <div class="alert alert-info" role="alert">
+                                    No translations found in the database.
+                                </div>
+                            </div>
+                        `;
+                    } else {
+                        translationsContainer.innerHTML = data.data.map(item => `
+                            <div class="col-md-6 col-lg-4">
+                                <div class="card">
+                                    ${item.image ? `<img src="${item.image}" class="card-img-top" alt="Captured Image">` : ''}
+                                    <div class="card-body">
+                                        <div class="timestamp mb-2">
+                                            ${new Date(item.timestamp).toLocaleString()}
+                                        </div>
+                                        ${item.original_text ? `
+                                            <div class="mb-3">
+                                                <div class="language-label">Original Text:</div>
+                                                <div class="translation-text">${item.original_text}</div>
+                                            </div>
+                                        ` : ''}
+                                        ${item.english_translation ? `
+                                            <div class="mb-3">
+                                                <div class="language-label">English Translation:</div>
+                                                <div class="translation-text">${item.english_translation}</div>
+                                            </div>
+                                        ` : ''}
+                                        ${item.hindi_translation ? `
+                                            <div class="mb-3">
+                                                <div class="language-label">Hindi Translation:</div>
+                                                <div class="translation-text">${item.hindi_translation}</div>
+                                            </div>
+                                        ` : ''}
+                                        ${item.marathi_translation ? `
+                                            <div class="mb-3">
+                                                <div class="language-label">Marathi Translation:</div>
+                                                <div class="translation-text">${item.marathi_translation}</div>
+                                            </div>
+                                        ` : ''}
+                                    </div>
+                                </div>
+                            </div>
+                        `).join('');
+                    }
+                } else {
+                    throw new Error(data.message || 'Failed to load translations');
+                }
+            } catch (error) {
+                console.error('Error details:', error);
+                errorMessage.textContent = `Error: ${error.message}`;
+                errorMessage.classList.remove('d-none');
+            } finally {
+                loading.style.display = 'none';
+            }
+        };
+
+        // Load translations on page load
+        document.addEventListener('DOMContentLoaded', loadTranslations);
+
+        // Refresh data every 30 seconds
+        setInterval(loadTranslations, 30000);
+    </script>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
