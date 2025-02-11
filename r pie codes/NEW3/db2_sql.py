@@ -1,4 +1,3 @@
-
 import os
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "/home/pi/gcloud.json"
 from google.cloud import vision, translate_v2, texttospeech
@@ -8,20 +7,74 @@ import RPi.GPIO as GPIO
 import time
 from picamera2 import Picamera2
 import sys
+import mysql.connector
+import base64
+from datetime import datetime
 
-import json
-import firebase_admin
-from firebase_admin import credentials, firestore
+# MySQL Configuration
+MYSQL_CONFIG = {
+    'host': 'sql12.freesqldatabase.com',  # FreeSQLDatabase host
+    'user': 'sql12762218',                # FreeSQLDatabase username
+    'password': 'Ua1NUpP9R4',            # FreeSQLDatabase password
+    'database': 'sql12762218',           # FreeSQLDatabase database name
+    'port': 3306                         # FreeSQLDatabase port number
+}
 
+def init_mysql_database():
+    try:
+        conn = mysql.connector.connect(**MYSQL_CONFIG)
+        cursor = conn.cursor()
+        
+        # Create table if it doesn't exist
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS captured_images (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                image LONGBLOB,
+                original_text TEXT,
+                english_translation TEXT,
+                hindi_translation TEXT,
+                marathi_translation TEXT,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        print("MySQL database initialized successfully")
+    except Exception as e:
+        print(f"Error initializing MySQL database: {str(e)}")
+        sys.exit(1)
 
-# Load Firebase credentials
-cred = credentials.Certificate('/home/pi/FirebaseServiceAccountKey.json')
-firebase_admin.initialize_app(cred)
+def store_in_mysql(image_path, original_text, english_text, hindi_text, marathi_text):
+    try:
+        # Read the image file
+        with open(image_path, "rb") as image_file:
+            image_data = image_file.read()
+        
+        # Connect to MySQL
+        conn = mysql.connector.connect(**MYSQL_CONFIG)
+        cursor = conn.cursor()
+        
+        # Insert data
+        query = '''
+            INSERT INTO captured_images 
+            (image, original_text, english_translation, hindi_translation, marathi_translation)
+            VALUES (%s, %s, %s, %s, %s)
+        '''
+        values = (image_data, original_text, english_text, hindi_text, marathi_text)
+        
+        cursor.execute(query, values)
+        conn.commit()
+        
+        print(f"Data stored in MySQL with ID: {cursor.lastrowid}")
+        
+        cursor.close()
+        conn.close()
+    except Exception as e:
+        print(f"Error storing data in MySQL: {str(e)}")
 
-# Initialize Firestore client
-db = firestore.client()
-
-# GPIO Setup
+# Rest of the imports and GPIO setup remain the same
 BUTTON_PIN = 18
 GPIO.setmode(GPIO.BCM)
 GPIO.setup(BUTTON_PIN, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
@@ -210,8 +263,8 @@ def capture_and_translate():
         print("\nTranslations complete!")
         os.system(f"mpg123 {AUDIO_PATHS['complete']}")
 
-        # Store captured image, original text, and translations in Firestore
-        store_in_firestore(image_path, extracted_text, english_text, hindi_text, marathi_text)
+        # Store captured image and translations in MySQL instead of Firestore
+        store_in_mysql(image_path, extracted_text, english_text, hindi_text, marathi_text)
 
         return True
 
@@ -248,37 +301,11 @@ def handle_button_press():
         time.sleep(2)
         button_press_count = 0
 
-import base64
-
-def store_in_firestore(image_path, original_text, english_text, hindi_text, marathi_text):
-    # Read the image file
-    with open(image_path, "rb") as image_file:
-        image_data = image_file.read()
-    
-    # Encode image data to base64
-    encoded_image = base64.b64encode(image_data).decode('utf-8')
-    
-    # Generate a unique document ID
-    doc_ref = db.collection('captured_images').document()
-    
-    # Create a dictionary to store the data
-    data = {
-        'image': encoded_image,
-        'original_text': original_text,
-        'english_translation': english_text,
-        'hindi_translation': hindi_text,
-        'marathi_translation': marathi_text,
-        'timestamp': firestore.SERVER_TIMESTAMP
-    }
-    
-    # Write the data to Firestore
-    doc_ref.set(data)
-    print(f"Data stored in Firestore with ID: {doc_ref.id}")
-
 def main():
     print("Starting application...")
     initialize_clients()
     initialize_feedback_sounds()
+    init_mysql_database()  # Initialize MySQL database
     
     while True:
         try:
