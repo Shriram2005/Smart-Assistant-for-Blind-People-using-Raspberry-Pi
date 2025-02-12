@@ -9,11 +9,11 @@ header('Content-Type: application/json; charset=utf-8');
 
 // FreeSQLDatabase Configuration
 $config = [
-    'host' => 'sql12.freesqldatabase.com',  // FreeSQLDatabase host
-    'user' => 'sql12762218',                // FreeSQLDatabase username
-    'password' => 'Ua1NUpP9R4',            // FreeSQLDatabase password
-    'database' => 'sql12762218',           // FreeSQLDatabase database name
-    'port' => 3306                         // FreeSQLDatabase port number
+    'host' => 'sql12.freesqldatabase.com',
+    'user' => 'sql12762218',
+    'password' => 'Ua1NUpP9R4',
+    'database' => 'sql12762218',
+    'port' => 3306
 ];
 
 try {
@@ -34,29 +34,34 @@ try {
         $config['port']
     );
 
-    // Check if table exists
-    $table_check = $mysqli->query("SHOW TABLES LIKE 'captured_images'");
-    if ($table_check->num_rows == 0) {
-        // Create table if it doesn't exist
-        $create_table = "CREATE TABLE IF NOT EXISTS captured_images (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            image LONGBLOB,
-            original_text TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
-            english_translation TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
-            hindi_translation TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
-            marathi_translation TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
-            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;";
-        
-        $mysqli->query($create_table);
+    // Set UTF-8 character encoding
+    if (!$mysqli->set_charset("utf8mb4")) {
+        throw new Exception("Error setting charset utf8mb4: " . $mysqli->error);
     }
 
-    // Set UTF-8 character encoding
-    $mysqli->set_charset("utf8mb4");
+    // First, let's try to alter the table to ensure proper character encoding
+    try {
+        $alter_table = "ALTER TABLE captured_images 
+                       MODIFY original_text TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+                       MODIFY english_translation TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+                       MODIFY hindi_translation TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+                       MODIFY marathi_translation TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci";
+        $mysqli->query($alter_table);
+    } catch (Exception $e) {
+        // If alter table fails, continue anyway
+        error_log("Alter table warning: " . $e->getMessage());
+    }
 
-    // Fetch the latest records
-    $query = "SELECT id, original_text, english_translation, hindi_translation, marathi_translation, 
-              timestamp, image FROM captured_images ORDER BY timestamp DESC";
+    // Fetch only text data (excluding image)
+    $query = "SELECT id, 
+              CONVERT(CAST(original_text AS BINARY) USING utf8mb4) as original_text,
+              CONVERT(CAST(english_translation AS BINARY) USING utf8mb4) as english_translation,
+              CONVERT(CAST(hindi_translation AS BINARY) USING utf8mb4) as hindi_translation,
+              CONVERT(CAST(marathi_translation AS BINARY) USING utf8mb4) as marathi_translation,
+              timestamp 
+              FROM captured_images 
+              ORDER BY timestamp DESC 
+              LIMIT 50";
     
     $result = $mysqli->query($query);
 
@@ -66,29 +71,16 @@ try {
 
     $data = [];
     while ($row = $result->fetch_assoc()) {
-        // Handle null values
-        foreach ($row as $key => $value) {
-            if ($value === null) {
-                $row[$key] = "";
-            }
-        }
-
-        // Convert BLOB image to base64
-        if ($row['image'] && strlen($row['image']) > 0) {
-            $imageData = base64_encode($row['image']);
-            $row['image'] = 'data:image/jpeg;base64,' . $imageData;
-        } else {
-            $row['image'] = '';
-        }
-        
-        // Clean and encode text fields
+        // Handle null values and clean text fields
         $textFields = ['original_text', 'english_translation', 'hindi_translation', 'marathi_translation'];
         foreach ($textFields as $field) {
-            if ($row[$field] && strlen($row[$field]) > 0) {
-                $row[$field] = mb_convert_encoding($row[$field], 'UTF-8', 'UTF-8');
-                $row[$field] = htmlspecialchars($row[$field], ENT_QUOTES, 'UTF-8');
-            } else {
+            if ($row[$field] === null || strlen($row[$field]) === 0) {
                 $row[$field] = '';
+            } else {
+                // Convert to UTF-8 and remove any invalid characters
+                $row[$field] = iconv('UTF-8', 'UTF-8//IGNORE', $row[$field]);
+                $row[$field] = preg_replace('/[\x00-\x1F\x7F]/u', '', $row[$field]);
+                $row[$field] = htmlspecialchars($row[$field], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
             }
         }
         
@@ -101,21 +93,23 @@ try {
             'status' => 'success',
             'data' => [],
             'message' => 'No records found in the database'
-        ]);
+        ], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_IGNORE);
     } else {
         $json = json_encode([
             'status' => 'success',
             'data' => $data
-        ], JSON_UNESCAPED_UNICODE | JSON_PARTIAL_OUTPUT_ON_ERROR);
+        ], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_IGNORE | JSON_PARTIAL_OUTPUT_ON_ERROR);
 
         if ($json === false) {
-            throw new Exception("JSON encoding failed: " . json_last_error_msg());
+            throw new Exception("JSON encoding failed: " . json_last_error_msg() . 
+                              " (Error code: " . json_last_error() . ")");
         }
 
         echo $json;
     }
 
 } catch (Exception $e) {
+    error_log("Database error: " . $e->getMessage());
     http_response_code(500);
     $error = [
         'status' => 'error',
@@ -123,10 +117,12 @@ try {
         'details' => [
             'error' => error_get_last(),
             'file' => __FILE__,
-            'line' => __LINE__
+            'line' => __LINE__,
+            'json_error' => json_last_error_msg(),
+            'charset' => $mysqli->character_set_name()
         ]
     ];
-    echo json_encode($error);
+    echo json_encode($error, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_IGNORE);
 } finally {
     if (isset($result)) {
         $result->close();
