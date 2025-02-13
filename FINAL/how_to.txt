@@ -1,0 +1,11 @@
+For autostart method, create:
+
+sudo nano /etc/xdg/autostart/smart_aid.desktop
+
+Add this content:
+
+    [Desktop Entry]
+    Type=Application
+    Name=Smart Aid
+    Exec=/home/pi/Desktop/start_smart_aid.sh
+    Terminal=true

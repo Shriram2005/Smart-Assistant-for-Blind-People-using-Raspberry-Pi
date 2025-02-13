@@ -35,7 +35,8 @@ AUDIO_PATHS = {
     'marathi': "marathi_audio.mp3",
     'capture': "capture_sound.mp3",
     'no_text': "no_text_found.mp3",
-    'complete': "translation_complete.mp3"
+    'complete': "translation_complete.mp3",
+    'ready': "ready_sound.mp3"
 }
 
 def initialize_clients():
@@ -58,10 +59,8 @@ def text_to_speech(text, language_code, output_path):
             name=f"{language_code}-Standard-A"
         )
         
-        # Modified audio configuration
         audio_config = texttospeech.AudioConfig(
             audio_encoding=texttospeech.AudioEncoding.MP3,
-            sample_rate_hertz=44100,  # Standard sample rate
             speaking_rate=1.0
         )
         
@@ -83,7 +82,8 @@ def initialize_feedback_sounds():
     messages = [
         ("Image captured", 'capture'),
         ("No text found", 'no_text'),
-        ("Translation complete", 'complete')
+        ("Translation complete", 'complete'),
+        ("Ready to capture image", 'ready')
     ]
     for message, path in messages:
         try:
@@ -148,33 +148,10 @@ def initialize_audio():
 
 def play_audio(audio_path):
     try:
-        # Use mpg123 with specific ALSA device and quiet output
-        subprocess.run(
-            ['mpg123', '-q', '--no-control', '-a', 'default', audio_path],
-            check=True,
-            stderr=subprocess.DEVNULL
-        )
-    except Exception as e1:
-        print(f"First playback attempt failed: {str(e1)}")
-        try:
-            # Second attempt with different device specification
-            subprocess.run(
-                ['mpg123', '-q', '--no-control', '-o', 'alsa', audio_path],
-                check=True,
-                stderr=subprocess.DEVNULL
-            )
-        except Exception as e2:
-            print(f"Second playback attempt failed: {str(e2)}")
-            try:
-                # Last attempt with direct hardware access
-                subprocess.run(
-                    ['mpg123', '-q', '--no-control', '-a', 'hw:0,0', audio_path],
-                    check=True,
-                    stderr=subprocess.DEVNULL
-                )
-            except Exception as e3:
-                print(f"All audio playback attempts failed")
-                time.sleep(1)
+        subprocess.run(['mpg123', '-q', audio_path], check=True, stderr=subprocess.DEVNULL)
+    except Exception as e:
+        print(f"Audio playback failed: {str(e)}")
+        time.sleep(1)
 
 @safe_camera_operation
 def capture_and_translate():
@@ -275,6 +252,9 @@ def main():
     initialize_clients()
     initialize_audio()
     initialize_feedback_sounds()
+    
+    # Play ready sound when program starts
+    play_audio(AUDIO_PATHS['ready'])
     
     while True:
         try:
