@@ -7,6 +7,8 @@ import RPi.GPIO as GPIO
 import time
 from picamera2 import Picamera2
 import sys
+from pydub import AudioSegment
+from pydub.playback import play
 
 # GPIO Setup
 BUTTON_PIN = 18
@@ -133,6 +135,23 @@ def safe_camera_operation(func):
             return func(*args, **kwargs)
     return wrapper
 
+def play_audio(audio_path):
+    try:
+        # First attempt: Using aplay (direct ALSA playback)
+        os.system(f"aplay -q {audio_path}")
+    except Exception as e1:
+        try:
+            # Second attempt: Using mpg123 (alternative MP3 player)
+            os.system(f"mpg123 -q {audio_path}")
+        except Exception as e2:
+            try:
+                # Third attempt: Using pydub with explicit device
+                audio = AudioSegment.from_mp3(audio_path)
+                play(audio, device="default")
+            except Exception as e3:
+                print(f"Error playing audio: {str(e3)}")
+                time.sleep(1)
+
 @safe_camera_operation
 def capture_and_translate():
     global current_language, camera
@@ -149,13 +168,13 @@ def capture_and_translate():
         camera.capture_file(image_path)
         camera.stop()
         
-        os.system(f"mpg123 {AUDIO_PATHS['capture']}")
+        play_audio(AUDIO_PATHS['capture'])
         
         extracted_text, detected_language = detect_text_and_language(image_path)
         
         if not extracted_text:
             print("No valid text found")
-            os.system(f"mpg123 {AUDIO_PATHS['no_text']}")
+            play_audio(AUDIO_PATHS['no_text'])
             return False
 
         print(f"\nDetected Language: {detected_language}")
@@ -191,7 +210,7 @@ def capture_and_translate():
                 text_to_speech(marathi_text, 'mr-IN', AUDIO_PATHS['marathi'])
         
         print("\nTranslations complete!")
-        os.system(f"mpg123 {AUDIO_PATHS['complete']}")
+        play_audio(AUDIO_PATHS['complete'])
         return True
         
     except Exception as e:
@@ -220,7 +239,7 @@ def handle_button_press():
             sequence = get_language_sequence(current_language)
             if button_press_count <= len(sequence):
                 audio_file = AUDIO_PATHS[sequence[button_press_count - 1]]
-                os.system(f"mpg123 {audio_file}")
+                play_audio(audio_file)
                 button_press_count = (button_press_count + 1) % (len(sequence) + 1)
     except Exception as e:
         print(f"Error in button press handler: {str(e)}")
