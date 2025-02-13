@@ -9,6 +9,11 @@ from picamera2 import Picamera2
 import sys
 from pydub import AudioSegment
 from pydub.playback import play
+import pygame
+import subprocess
+
+os.environ['SDL_AUDIODRIVER'] = 'alsa'
+os.environ['AUDIODEV'] = 'hw:0,0'
 
 # GPIO Setup
 BUTTON_PIN = 18
@@ -53,8 +58,10 @@ def text_to_speech(text, language_code, output_path):
             name=f"{language_code}-Standard-A"
         )
         
+        # Modified audio configuration
         audio_config = texttospeech.AudioConfig(
             audio_encoding=texttospeech.AudioEncoding.MP3,
+            sample_rate_hertz=44100,  # Standard sample rate
             speaking_rate=1.0
         )
         
@@ -135,21 +142,38 @@ def safe_camera_operation(func):
             return func(*args, **kwargs)
     return wrapper
 
+def initialize_audio():
+    # No initialization needed for mpg123
+    pass
+
 def play_audio(audio_path):
     try:
-        # First attempt: Using aplay (direct ALSA playback)
-        os.system(f"aplay -q {audio_path}")
+        # Use mpg123 with specific ALSA device and quiet output
+        subprocess.run(
+            ['mpg123', '-q', '--no-control', '-a', 'default', audio_path],
+            check=True,
+            stderr=subprocess.DEVNULL
+        )
     except Exception as e1:
+        print(f"First playback attempt failed: {str(e1)}")
         try:
-            # Second attempt: Using mpg123 (alternative MP3 player)
-            os.system(f"mpg123 -q {audio_path}")
+            # Second attempt with different device specification
+            subprocess.run(
+                ['mpg123', '-q', '--no-control', '-o', 'alsa', audio_path],
+                check=True,
+                stderr=subprocess.DEVNULL
+            )
         except Exception as e2:
+            print(f"Second playback attempt failed: {str(e2)}")
             try:
-                # Third attempt: Using pydub with explicit device
-                audio = AudioSegment.from_mp3(audio_path)
-                play(audio, device="default")
+                # Last attempt with direct hardware access
+                subprocess.run(
+                    ['mpg123', '-q', '--no-control', '-a', 'hw:0,0', audio_path],
+                    check=True,
+                    stderr=subprocess.DEVNULL
+                )
             except Exception as e3:
-                print(f"Error playing audio: {str(e3)}")
+                print(f"All audio playback attempts failed")
                 time.sleep(1)
 
 @safe_camera_operation
@@ -249,6 +273,7 @@ def handle_button_press():
 def main():
     print("Starting application...")
     initialize_clients()
+    initialize_audio()
     initialize_feedback_sounds()
     
     while True:
