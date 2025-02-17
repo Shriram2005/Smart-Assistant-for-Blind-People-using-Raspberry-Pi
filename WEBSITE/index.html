@@ -3,249 +3,304 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OCR Translation Dashboard</title>
-    <!-- Bootstrap CSS -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <!-- Google Fonts -->
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <title>Smart Aid Translation Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
         body {
-            font-family: 'Noto Sans', sans-serif;
             background-color: #f8f9fa;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         }
         .navbar {
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            background-color: #2c3e50;
         }
         .card {
             border: none;
-            border-radius: 12px;
-            margin-bottom: 24px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            box-shadow: 0 2px 15px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
             transition: transform 0.2s;
-            background-color: white;
         }
         .card:hover {
             transform: translateY(-5px);
         }
-        .translation-text {
-            white-space: pre-wrap;
-            word-wrap: break-word;
-            margin-bottom: 10px;
-            padding: 12px;
-            background-color: #f8f9fa;
-            border-radius: 8px;
-            font-size: 0.95rem;
-            line-height: 1.5;
+        .translation-image {
+            max-height: 200px;
+            object-fit: contain;
+            border-radius: 5px;
         }
         .timestamp {
-            font-size: 0.85rem;
+            font-size: 0.8em;
             color: #6c757d;
-            margin-bottom: 15px;
-            display: flex;
-            align-items: center;
         }
         .language-label {
-            font-weight: 600;
-            color: #0d6efd;
-            margin-bottom: 8px;
-            font-size: 0.9rem;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            display: flex;
-            align-items: center;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+        .translation-text {
+            background-color: #f8f9fa;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 5px 0;
+        }
+        .pagination {
+            justify-content: center;
+            margin-top: 20px;
+        }
+        .search-box {
+            max-width: 500px;
+            margin: 20px auto;
         }
         #loading {
             position: fixed;
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            z-index: 1000;
-            background: rgba(255,255,255,0.9);
-            padding: 20px;
-            border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }
-        .refresh-btn {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            z-index: 1000;
-            border-radius: 50%;
-            width: 50px;
-            height: 50px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            display: none;
         }
         .no-data {
             text-align: center;
-            padding: 40px;
-            background: white;
-            border-radius: 12px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        }
-        .translation-section {
-            margin-bottom: 15px;
-            padding: 10px;
-            border-radius: 8px;
-            background-color: #fff;
-        }
-        .translation-section:hover {
-            background-color: #f8f9fa;
+            padding: 50px;
+            color: #6c757d;
         }
     </style>
 </head>
 <body>
     <!-- Navbar -->
-    <nav class="navbar navbar-expand-lg navbar-dark bg-primary mb-4">
+    <nav class="navbar navbar-dark mb-4">
         <div class="container">
-            <span class="navbar-brand">
-                <img src="https://img.icons8.com/color/48/000000/translation.png" width="30" height="30" class="d-inline-block align-top me-2" alt="Logo">
-                OCR Translation Dashboard
+            <span class="navbar-brand mb-0 h1">
+                <i class="fas fa-language me-2"></i>Smart Aid Translation Dashboard
             </span>
         </div>
     </nav>
 
     <!-- Main Content -->
     <div class="container">
+        <!-- Search Box -->
+        <div class="search-box">
+            <div class="input-group">
+                <input type="text" id="searchInput" class="form-control" placeholder="Search translations...">
+                <button class="btn btn-primary" type="button" id="searchButton">
+                    <i class="fas fa-search"></i> Search
+                </button>
+            </div>
+        </div>
+
         <!-- Loading Spinner -->
-        <div id="loading" class="d-none">
-            <div class="d-flex align-items-center">
-                <div class="spinner-border text-primary me-2" role="status">
-                    <span class="visually-hidden">Loading...</span>
-                </div>
-                <span>Loading translations...</span>
+        <div id="loading" class="text-center">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
             </div>
-            </div>
+        </div>
 
-        <!-- Error Message -->
-        <div id="error-message" class="alert alert-danger d-none" role="alert"></div>
+        <!-- Translations Container -->
+        <div id="translationsContainer"></div>
 
-        <!-- Translations Grid -->
-        <div id="translations" class="row"></div>
+        <!-- Pagination -->
+        <nav aria-label="Page navigation">
+            <ul class="pagination" id="pagination"></ul>
+        </nav>
+    </div>
 
-        <!-- Refresh Button -->
-        <button class="btn btn-primary refresh-btn" onclick="loadTranslations()" title="Refresh">
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" class="bi bi-arrow-clockwise" viewBox="0 0 16 16">
-                <path fill-rule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z"/>
-                <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/>
-            </svg>
-        </button>
-            </div>
-
-    <!-- Scripts -->
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-        const loadTranslations = async () => {
-            const loading = document.getElementById('loading');
-            const errorMessage = document.getElementById('error-message');
-            const translationsContainer = document.getElementById('translations');
+        let currentPage = 1;
 
-            try {
-                loading.classList.remove('d-none');
-                errorMessage.classList.add('d-none');
+        // Function to show loading spinner
+        function showLoading() {
+            document.getElementById('loading').style.display = 'block';
+        }
 
-                const response = await fetch('db_connect.php');
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-                
-                const data = await response.json();
+        // Function to hide loading spinner
+        function hideLoading() {
+            document.getElementById('loading').style.display = 'none';
+        }
 
-                if (data.status === 'success') {
-                    if (!data.data || data.data.length === 0) {
-                        translationsContainer.innerHTML = `
-                            <div class="col-12">
-                                <div class="no-data">
-                                    <img src="https://img.icons8.com/color/96/000000/empty-box.png" alt="No data">
-                                    <h3 class="mt-3">No Translations Found</h3>
-                                    <p class="text-muted">Start capturing images to see translations here.</p>
+        // Function to format timestamp
+        function formatTimestamp(timestamp) {
+            return new Date(timestamp).toLocaleString();
+        }
+
+        // Function to create translation card
+        function createTranslationCard(translation) {
+            return `
+                <div class="card mb-4">
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-4">
+                                <img src="data:image/jpeg;base64,${translation.image}" 
+                                     class="translation-image img-fluid" 
+                                     alt="Captured Image">
+                            </div>
+                            <div class="col-md-8">
+                                <div class="timestamp mb-2">
+                                    <i class="far fa-clock me-1"></i>${formatTimestamp(translation.timestamp)}
+                                </div>
+                                
+                                <div class="translation-block mb-3">
+                                    <div class="language-label">Original Text:</div>
+                                    <div class="translation-text">${translation.original_text || 'N/A'}</div>
+                                </div>
+
+                                <div class="translation-block mb-3">
+                                    <div class="language-label">English Translation:</div>
+                                    <div class="translation-text">${translation.english_translation || 'N/A'}</div>
+                                </div>
+
+                                <div class="translation-block mb-3">
+                                    <div class="language-label">Hindi Translation:</div>
+                                    <div class="translation-text">${translation.hindi_translation || 'N/A'}</div>
+                                </div>
+
+                                <div class="translation-block">
+                                    <div class="language-label">Marathi Translation:</div>
+                                    <div class="translation-text">${translation.marathi_translation || 'N/A'}</div>
                                 </div>
                             </div>
-                        `;
-                    } else {
-                        translationsContainer.innerHTML = data.data.map(item => `
-                            <div class="col-md-6 col-lg-4">
-                                <div class="card">
-                                    <div class="card-body">
-                                        <div class="timestamp">
-                                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-clock me-2" viewBox="0 0 16 16">
-                                                <path d="M8 3.5a.5.5 0 0 0-1 0V9a.5.5 0 0 0 .252.434l3.5 2a.5.5 0 0 0 .496-.868L8 8.71V3.5z"/>
-                                                <path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16zm7-8A7 7 0 1 1 1 8a7 7 0 0 1 14 0z"/>
-                                            </svg>
-                                            ${new Date(item.timestamp).toLocaleString()}
-                                        </div>
-                                        ${item.original_text ? `
-                                            <div class="translation-section">
-                                                <div class="language-label">
-                                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-card-text me-2" viewBox="0 0 16 16">
-                                                        <path d="M14.5 3a.5.5 0 0 1 .5.5v9a.5.5 0 0 1-.5.5h-13a.5.5 0 0 1-.5-.5v-9a.5.5 0 0 1 .5-.5h13zm-13-1A1.5 1.5 0 0 0 0 3.5v9A1.5 1.5 0 0 0 1.5 14h13a1.5 1.5 0 0 0 1.5-1.5v-9A1.5 1.5 0 0 0 14.5 2h-13z"/>
-                                                        <path d="M3 5.5a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 0 1h-9a.5.5 0 0 1-.5-.5zM3 8a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 0 1h-9A.5.5 0 0 1 3 8zm0 2.5a.5.5 0 0 1 .5-.5h6a.5.5 0 0 1 0 1h-6a.5.5 0 0 1-.5-.5z"/>
-                                                    </svg>
-                                                    Original Text
-                                                </div>
-                                                <div class="translation-text">${item.original_text}</div>
-                                            </div>
-                                        ` : ''}
-                                        ${item.english_translation ? `
-                                            <div class="translation-section">
-                                                <div class="language-label">
-                                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-translate me-2" viewBox="0 0 16 16">
-                                                        <path d="M4.545 6.714 4.11 8H3l1.862-5h1.284L8 8H6.833l-.435-1.286H4.545zm1.634-.736L5.5 3.956h-.049l-.679 2.022H6.18z"/>
-                                                        <path d="M0 2a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v3h3a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-3H2a2 2 0 0 1-2-2V2zm2-1a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1H2zm7.138 9.995c.193.301.402.583.63.846-.748.575-1.673 1.001-2.768 1.292.178.217.451.635.555.867 1.125-.359 2.08-.844 2.886-1.494.777.665 1.739 1.165 2.93 1.472.133-.254.414-.673.629-.89-1.125-.253-2.057-.694-2.82-1.284.681-.747 1.222-1.651 1.621-2.757H14V8h-3v1.047h.765c-.318.844-.74 1.546-1.272 2.13a6.066 6.066 0 0 1-.415-.492 1.988 1.988 0 0 1-.94.31z"/>
-                                                    </svg>
-                                                    English
-                                                </div>
-                                                <div class="translation-text">${item.english_translation}</div>
-                                            </div>
-                                        ` : ''}
-                                        ${item.hindi_translation ? `
-                                            <div class="translation-section">
-                                                <div class="language-label">
-                                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-translate me-2" viewBox="0 0 16 16">
-                                                        <path d="M4.545 6.714 4.11 8H3l1.862-5h1.284L8 8H6.833l-.435-1.286H4.545zm1.634-.736L5.5 3.956h-.049l-.679 2.022H6.18z"/>
-                                                        <path d="M0 2a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v3h3a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-3H2a2 2 0 0 1-2-2V2zm2-1a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1H2zm7.138 9.995c.193.301.402.583.63.846-.748.575-1.673 1.001-2.768 1.292.178.217.451.635.555.867 1.125-.359 2.08-.844 2.886-1.494.777.665 1.739 1.165 2.93 1.472.133-.254.414-.673.629-.89-1.125-.253-2.057-.694-2.82-1.284.681-.747 1.222-1.651 1.621-2.757H14V8h-3v1.047h.765c-.318.844-.74 1.546-1.272 2.13a6.066 6.066 0 0 1-.415-.492 1.988 1.988 0 0 1-.94.31z"/>
-                                                    </svg>
-                                                    Hindi
-                                                </div>
-                                                <div class="translation-text">${item.hindi_translation}</div>
-                                            </div>
-                                        ` : ''}
-                                        ${item.marathi_translation ? `
-                                            <div class="translation-section">
-                                                <div class="language-label">
-                                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-translate me-2" viewBox="0 0 16 16">
-                                                        <path d="M4.545 6.714 4.11 8H3l1.862-5h1.284L8 8H6.833l-.435-1.286H4.545zm1.634-.736L5.5 3.956h-.049l-.679 2.022H6.18z"/>
-                                                        <path d="M0 2a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v3h3a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-3H2a2 2 0 0 1-2-2V2zm2-1a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1H2zm7.138 9.995c.193.301.402.583.63.846-.748.575-1.673 1.001-2.768 1.292.178.217.451.635.555.867 1.125-.359 2.08-.844 2.886-1.494.777.665 1.739 1.165 2.93 1.472.133-.254.414-.673.629-.89-1.125-.253-2.057-.694-2.82-1.284.681-.747 1.222-1.651 1.621-2.757H14V8h-3v1.047h.765c-.318.844-.74 1.546-1.272 2.13a6.066 6.066 0 0 1-.415-.492 1.988 1.988 0 0 1-.94.31z"/>
-                                                    </svg>
-                                                    Marathi
-                                                </div>
-                                                <div class="translation-text">${item.marathi_translation}</div>
-            </div>
-                                        ` : ''}
-            </div>
-    </div>
-    </div>
-                        `).join('');
-                    }
-                } else {
-                    throw new Error(data.message || 'Failed to load translations');
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Function to load translations
+        async function loadTranslations(page = 1) {
+            showLoading();
+            try {
+                const response = await fetch(`db_connect.php?action=get_translations&page=${page}`);
+                const data = await response.json();
+                
+                if (data.error) {
+                    throw new Error(data.error);
                 }
+
+                const container = document.getElementById('translationsContainer');
+                
+                if (data.data.length === 0) {
+                    container.innerHTML = `
+                        <div class="no-data">
+                            <i class="fas fa-inbox fa-3x mb-3"></i>
+                            <h4>No translations found</h4>
+                        </div>
+                    `;
+                    return;
+                }
+
+                container.innerHTML = data.data.map(createTranslationCard).join('');
+                
+                // Update pagination
+                updatePagination(data.current_page, data.total_pages);
+                
             } catch (error) {
                 console.error('Error:', error);
-                errorMessage.textContent = `Error: ${error.message}`;
-                errorMessage.classList.remove('d-none');
+                document.getElementById('translationsContainer').innerHTML = `
+                    <div class="alert alert-danger">
+                        Error loading translations: ${error.message}
+                    </div>
+                `;
             } finally {
-                loading.classList.add('d-none');
+                hideLoading();
             }
-        };
+        }
 
-        // Load translations on page load
-        document.addEventListener('DOMContentLoaded', loadTranslations);
+        // Function to update pagination
+        function updatePagination(currentPage, totalPages) {
+            const pagination = document.getElementById('pagination');
+            let paginationHTML = '';
+            
+            // Previous button
+            paginationHTML += `
+                <li class="page-item ${currentPage === 1 ? 'disabled' : ''}">
+                    <a class="page-link" href="#" data-page="${currentPage - 1}">Previous</a>
+                </li>
+            `;
+            
+            // Page numbers
+            for (let i = 1; i <= totalPages; i++) {
+                paginationHTML += `
+                    <li class="page-item ${currentPage === i ? 'active' : ''}">
+                        <a class="page-link" href="#" data-page="${i}">${i}</a>
+                    </li>
+                `;
+            }
+            
+            // Next button
+            paginationHTML += `
+                <li class="page-item ${currentPage === totalPages ? 'disabled' : ''}">
+                    <a class="page-link" href="#" data-page="${currentPage + 1}">Next</a>
+                </li>
+            `;
+            
+            pagination.innerHTML = paginationHTML;
+            
+            // Add click events to pagination
+            pagination.querySelectorAll('.page-link').forEach(link => {
+                link.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    const page = parseInt(e.target.dataset.page);
+                    if (page && page !== currentPage) {
+                        loadTranslations(page);
+                    }
+                });
+            });
+        }
 
-        // Refresh data every 60 seconds
-        setInterval(loadTranslations, 60000);
+        // Function to handle search
+        async function handleSearch() {
+            const searchTerm = document.getElementById('searchInput').value.trim();
+            if (!searchTerm) {
+                loadTranslations(1);
+                return;
+            }
+
+            showLoading();
+            try {
+                const response = await fetch(`db_connect.php?action=search&term=${encodeURIComponent(searchTerm)}`);
+                const data = await response.json();
+                
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+
+                const container = document.getElementById('translationsContainer');
+                
+                if (data.data.length === 0) {
+                    container.innerHTML = `
+                        <div class="no-data">
+                            <i class="fas fa-search fa-3x mb-3"></i>
+                            <h4>No results found for "${searchTerm}"</h4>
+                        </div>
+                    `;
+                    return;
+                }
+
+                container.innerHTML = data.data.map(createTranslationCard).join('');
+                document.getElementById('pagination').innerHTML = ''; // Hide pagination during search
+                
+            } catch (error) {
+                console.error('Error:', error);
+                document.getElementById('translationsContainer').innerHTML = `
+                    <div class="alert alert-danger">
+                        Error searching translations: ${error.message}
+                    </div>
+                `;
+            } finally {
+                hideLoading();
+            }
+        }
+
+        // Event Listeners
+        document.getElementById('searchButton').addEventListener('click', handleSearch);
+        document.getElementById('searchInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                handleSearch();
+            }
+        });
+
+        // Load initial data
+        document.addEventListener('DOMContentLoaded', () => {
+            loadTranslations(1);
+        });
     </script>
 </body>
 </html>

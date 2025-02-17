@@ -7,128 +7,150 @@ ini_set('display_errors', 1);
 header('Access-Control-Allow-Origin: *');
 header('Content-Type: application/json; charset=utf-8');
 
-// FreeSQLDatabase Configuration
-$config = [
-    'host' => 'sql12.freesqldatabase.com',
-    'user' => 'sql12762218',
-    'password' => 'Ua1NUpP9R4',
-    'database' => 'sql12762218',
+// AWS RDS Database configuration
+$db_config = array(
+    'host' => 'raspberrypi.c5csoekmm1vs.us-east-1.rds.amazonaws.com',
+    'user' => 'admin',
+    'password' => 'raspberrypi12',
+    'database' => 'captured_data',
     'port' => 3306
-];
+);
 
-try {
-    // Test if mysqli extension is loaded
-    if (!extension_loaded('mysqli')) {
-        throw new Exception("MySQLi extension is not loaded");
-    }
-
-    // Create connection with error reporting
-    mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
-    
-    // Create connection
-    $mysqli = new mysqli(
-        $config['host'],
-        $config['user'],
-        $config['password'],
-        $config['database'],
-        $config['port']
-    );
-
-    // Set UTF-8 character encoding
-    if (!$mysqli->set_charset("utf8mb4")) {
-        throw new Exception("Error setting charset utf8mb4: " . $mysqli->error);
-    }
-
-    // First, let's try to alter the table to ensure proper character encoding
+// Create connection
+function connectDB() {
+    global $db_config;
     try {
-        $alter_table = "ALTER TABLE captured_images 
-                       MODIFY original_text TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
-                       MODIFY english_translation TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
-                       MODIFY hindi_translation TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
-                       MODIFY marathi_translation TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci";
-        $mysqli->query($alter_table);
+        $conn = new mysqli(
+            $db_config['host'],
+            $db_config['user'],
+            $db_config['password'],
+            $db_config['database'],
+            $db_config['port']
+        );
+
+        if ($conn->connect_error) {
+            throw new Exception("Connection failed: " . $conn->connect_error);
+        }
+
+        // Set charset to handle multilingual content
+        $conn->set_charset("utf8mb4");
+        return $conn;
     } catch (Exception $e) {
-        // If alter table fails, continue anyway
-        error_log("Alter table warning: " . $e->getMessage());
+        error_log("Database connection error: " . $e->getMessage());
+        return false;
     }
+}
 
-    // Fetch only text data (excluding image)
-    $query = "SELECT id, 
-              CONVERT(CAST(original_text AS BINARY) USING utf8mb4) as original_text,
-              CONVERT(CAST(english_translation AS BINARY) USING utf8mb4) as english_translation,
-              CONVERT(CAST(hindi_translation AS BINARY) USING utf8mb4) as hindi_translation,
-              CONVERT(CAST(marathi_translation AS BINARY) USING utf8mb4) as marathi_translation,
-              timestamp 
-              FROM captured_images 
-              ORDER BY timestamp DESC 
-              LIMIT 50";
+// Get all translations with pagination
+function getTranslations($page = 1, $limit = 10) {
+    $offset = ($page - 1) * $limit;
+    $conn = connectDB();
     
-    $result = $mysqli->query($query);
-
-    if (!$result) {
-        throw new Exception("Query failed: " . $mysqli->error);
+    if (!$conn) {
+        return array('error' => 'Database connection failed');
     }
 
-    $data = [];
-    while ($row = $result->fetch_assoc()) {
-        // Handle null values and clean text fields
-        $textFields = ['original_text', 'english_translation', 'hindi_translation', 'marathi_translation'];
-        foreach ($textFields as $field) {
-            if ($row[$field] === null || strlen($row[$field]) === 0) {
-                $row[$field] = '';
-            } else {
-                // Convert to UTF-8 and remove any invalid characters
-                $row[$field] = iconv('UTF-8', 'UTF-8//IGNORE', $row[$field]);
-                $row[$field] = preg_replace('/[\x00-\x1F\x7F]/u', '', $row[$field]);
-                $row[$field] = htmlspecialchars($row[$field], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-            }
-        }
+    try {
+        // Get total count for pagination
+        $count_query = "SELECT COUNT(*) as total FROM captured_images";
+        $count_result = $conn->query($count_query);
+        $total_records = $count_result->fetch_assoc()['total'];
+        $total_pages = ceil($total_records / $limit);
+
+        // Get paginated results
+        $query = "SELECT id, original_text, english_translation, 
+                        hindi_translation, marathi_translation, timestamp,
+                        image
+                 FROM captured_images 
+                 ORDER BY timestamp DESC 
+                 LIMIT ? OFFSET ?";
+                 
+        $stmt = $conn->prepare($query);
+        $stmt->bind_param("ii", $limit, $offset);
+        $stmt->execute();
+        $result = $stmt->get_result();
         
-        $data[] = $row;
-    }
-
-    // Check if we have any data
-    if (empty($data)) {
-        echo json_encode([
-            'status' => 'success',
-            'data' => [],
-            'message' => 'No records found in the database'
-        ], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_IGNORE);
-    } else {
-        $json = json_encode([
-            'status' => 'success',
-            'data' => $data
-        ], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_IGNORE | JSON_PARTIAL_OUTPUT_ON_ERROR);
-
-        if ($json === false) {
-            throw new Exception("JSON encoding failed: " . json_last_error_msg() . 
-                              " (Error code: " . json_last_error() . ")");
+        $translations = array();
+        while ($row = $result->fetch_assoc()) {
+            // Convert image BLOB to base64 for display
+            $row['image'] = base64_encode($row['image']);
+            $translations[] = $row;
         }
 
-        echo $json;
+        return array(
+            'data' => $translations,
+            'total_pages' => $total_pages,
+            'current_page' => $page,
+            'total_records' => $total_records
+        );
+
+    } catch (Exception $e) {
+        error_log("Error fetching translations: " . $e->getMessage());
+        return array('error' => 'Error fetching data');
+    } finally {
+        $conn->close();
+    }
+}
+
+// Search translations
+function searchTranslations($search_term) {
+    $conn = connectDB();
+    
+    if (!$conn) {
+        return array('error' => 'Database connection failed');
     }
 
-} catch (Exception $e) {
-    error_log("Database error: " . $e->getMessage());
-    http_response_code(500);
-    $error = [
-        'status' => 'error',
-        'message' => $e->getMessage(),
-        'details' => [
-            'error' => error_get_last(),
-            'file' => __FILE__,
-            'line' => __LINE__,
-            'json_error' => json_last_error_msg(),
-            'charset' => $mysqli->character_set_name()
-        ]
-    ];
-    echo json_encode($error, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_IGNORE);
-} finally {
-    if (isset($result)) {
-        $result->close();
+    try {
+        $search_term = "%$search_term%";
+        $query = "SELECT id, original_text, english_translation, 
+                        hindi_translation, marathi_translation, timestamp,
+                        image
+                 FROM captured_images 
+                 WHERE original_text LIKE ? 
+                    OR english_translation LIKE ?
+                    OR hindi_translation LIKE ?
+                    OR marathi_translation LIKE ?
+                 ORDER BY timestamp DESC";
+                 
+        $stmt = $conn->prepare($query);
+        $stmt->bind_param("ssss", $search_term, $search_term, $search_term, $search_term);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        
+        $translations = array();
+        while ($row = $result->fetch_assoc()) {
+            $row['image'] = base64_encode($row['image']);
+            $translations[] = $row;
+        }
+
+        return array('data' => $translations);
+
+    } catch (Exception $e) {
+        error_log("Error searching translations: " . $e->getMessage());
+        return array('error' => 'Error searching data');
+    } finally {
+        $conn->close();
     }
-    if (isset($mysqli)) {
-        $mysqli->close();
+}
+
+// Handle AJAX requests
+if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['action'])) {
+    header('Content-Type: application/json');
+    
+    switch ($_GET['action']) {
+        case 'get_translations':
+            $page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
+            echo json_encode(getTranslations($page));
+            break;
+            
+        case 'search':
+            $search_term = isset($_GET['term']) ? $_GET['term'] : '';
+            echo json_encode(searchTranslations($search_term));
+            break;
+            
+        default:
+            echo json_encode(array('error' => 'Invalid action'));
     }
+    exit;
 }
 ?> 
