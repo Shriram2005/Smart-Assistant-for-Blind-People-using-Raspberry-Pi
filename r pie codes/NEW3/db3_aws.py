@@ -14,10 +14,10 @@ from datetime import datetime
 
 # AWS RDS MySQL Configuration
 MYSQL_CONFIG = {
-    'host': 'smart-aid-db.cjlzjqasq5hy.ap-south-1.rds.amazonaws.com',  # AWS RDS endpoint
+    'host': 'raspberrypi.c5csoekmm1vs.us-east-1.rds.amazonaws.com',  # AWS RDS endpoint
     'user': 'admin',                # AWS RDS username
-    'password': 'smartaid123',      # AWS RDS password
-    'database': 'smart_aid_db',     # AWS RDS database name
+    'password': 'raspberrypi12',      # AWS RDS password
+    'database': 'captured_data',     # AWS RDS database name
     'port': 3306,                   # AWS RDS port
     'pool_name': 'mypool',
     'pool_size': 5,
