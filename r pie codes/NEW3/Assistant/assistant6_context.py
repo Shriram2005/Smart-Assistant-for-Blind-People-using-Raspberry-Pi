@@ -40,11 +40,7 @@ SUPPORTED_LANGUAGES = {
 }
 
 # Wake word configuration
-WAKE_WORDS = {
-    'hey assistant', 'hi assistant', 'hello assistant', 
-    'assistant', 'smart assistant', 'hey smart assistant',
-    'हेलो असिस्टेंट', 'हाय असिस्टेंट'
-}
+WAKE_WORDS = {'mira', 'hey mira', 'hi mira', 'hello mira', 'mirror', 'meera', 'मीरा'}
 
 # AWS RDS Database configuration
 DB_CONFIG = {
@@ -68,21 +64,7 @@ class SmartAssistant:
         # Load chat history and initialize chat
         self.chat_history = self.load_chat_history()
         self.current_context = None
-        
-        # Initialize speech components
-        self.recognizer = sr.Recognizer()
-        self.recognizer.pause_threshold = 1
-        self.recognizer.energy_threshold = 4000
-        self.recognizer.dynamic_energy_threshold = True
-        self.recognizer.dynamic_energy_adjustment_damping = 0.15
-        self.recognizer.dynamic_energy_ratio = 1.5
-        
-        # Initialize the chat with context
         self.initialize_chat_with_context()
-        
-        # Voice activation settings
-        self.wake_words = WAKE_WORDS
-        self.is_active = False
 
     def get_db_connection(self):
         """Get a database connection with retry mechanism"""
@@ -247,136 +229,6 @@ class SmartAssistant:
         except Exception as e:
             print(f"Error loading chat history: {str(e)}")
         return []
-
-    def speak(self, text, lang='en'):
-        """Enhanced text-to-speech with proper cleanup"""
-        try:
-            temp_file = f"temp_speech_{time.time()}.mp3"
-            tts = gTTS(text=text, lang='hi' if lang == 'hi' else 'en', slow=False)
-            tts.save(temp_file)
-
-            pygame.mixer.music.load(temp_file)
-            pygame.mixer.music.play()
-
-            while pygame.mixer.music.get_busy():
-                pygame.time.Clock().tick(20)
-                time.sleep(0.05)
-
-            pygame.mixer.music.unload()
-            os.remove(temp_file)
-        except Exception as e:
-            print(f"Speech Error: {str(e)}")
-            pygame.mixer.quit()
-            pygame.mixer.init()
-
-    def listen_for_wake_word(self):
-        """Enhanced wake word detection with noise handling"""
-        print("\nWaiting for wake word 'Hey Assistant'...")
-        
-        with sr.Microphone() as source:
-            print("Adjusting for ambient noise...")
-            self.recognizer.adjust_for_ambient_noise(source, duration=2)
-            
-            try:
-                print("Listening for wake word...")
-                audio = self.recognizer.listen(source, timeout=3, phrase_time_limit=5)
-                
-                try:
-                    # Try multiple language recognition
-                    text = ""
-                    try:
-                        text = self.recognizer.recognize_google(audio, language='en-US').lower()
-                    except:
-                        try:
-                            text = self.recognizer.recognize_google(audio, language='hi-IN').lower()
-                        except:
-                            return False
-                    
-                    print(f"Heard: {text}")
-                    return any(wake_word in text.lower() or text.lower() in wake_word 
-                             for wake_word in self.wake_words)
-                    
-                except sr.UnknownValueError:
-                    return False
-                    
-            except (sr.WaitTimeoutError, Exception) as e:
-                print(f"Error in wake word detection: {str(e)}")
-                return False
-
-    def listen_for_command(self):
-        """Enhanced command listening with multiple language support"""
-        with sr.Microphone() as source:
-            print("\nListening for command...")
-            self.recognizer.adjust_for_ambient_noise(source, duration=1)
-            
-            try:
-                print("Speak now...")
-                audio = self.recognizer.listen(source, timeout=5, phrase_time_limit=15)
-                print("Processing...")
-                
-                # Try both English and Hindi recognition
-                try:
-                    text = self.recognizer.recognize_google(audio, language='en-US')
-                except:
-                    try:
-                        text = self.recognizer.recognize_google(audio, language='hi-IN')
-                    except sr.UnknownValueError:
-                        self.speak("Sorry, I couldn't understand that. Could you please repeat?")
-                        return None
-                    except Exception as e:
-                        print(f"Error: {str(e)}")
-                        return None
-                
-                print(f"You said: {text}")
-                return text.lower()
-                
-            except sr.WaitTimeoutError:
-                self.speak("I didn't hear anything. Please try again.")
-                return None
-            except Exception as e:
-                print(f"Error: {str(e)}")
-                return None
-
-    def run(self):
-        """Main voice interaction loop"""
-        self.speak("Hello! I'm your smart assistant. Say 'Hey Assistant' to activate me!")
-        
-        while True:
-            try:
-                # Listen for wake word
-                if not self.is_active:
-                    if self.listen_for_wake_word():
-                        self.is_active = True
-                        self.speak("Yes, I'm listening! How can I help you?")
-                        continue
-                
-                # Process commands when active
-                if self.is_active:
-                    command = self.listen_for_command()
-                    
-                    if command:
-                        # Check for exit commands
-                        if any(word in command.lower() for word in ["exit", "quit", "bye", "बंद", "अलविदा"]):
-                            self.speak("Goodbye! Have a great day!")
-                            break
-                        
-                        # Process the command
-                        response = self.process_input(command)
-                        print(f"Assistant: {response}")
-                        self.speak(response, 'hi' if detect_language(command) == 'hi' else 'en')
-                        
-                        # Reset active state after response
-                        self.is_active = False
-                
-                time.sleep(0.1)  # Prevent CPU overuse
-                
-            except KeyboardInterrupt:
-                print("\nGoodbye!")
-                self.speak("Goodbye!")
-                break
-            except Exception as e:
-                print(f"Error in main loop: {str(e)}")
-                continue
 
 def speak_text(text, language='en'):
     try:
@@ -562,6 +414,76 @@ def process_query(query, conversation_history):
         return conversation_history
 
 
+def listen_for_wake_word():
+    """Enhanced wake word detection"""
+    print("\nWaiting for wake word 'Mira'...")
+
+    with sr.Microphone() as source:
+        # Longer ambient noise adjustment
+        print("Adjusting for ambient noise...")
+        recognizer.adjust_for_ambient_noise(source, duration=2)
+
+        try:
+            print("Listening for wake word...")
+            # Increased timeout and phrase limit
+            audio = recognizer.listen(source, timeout=3, phrase_time_limit=5)
+
+            try:
+                # Try multiple language recognition for better wake word detection
+                text = ""
+                try:
+                    text = recognizer.recognize_google(audio, language='en-US').lower()
+                except:
+                    try:
+                        text = recognizer.recognize_google(audio, language='hi-IN').lower()
+                    except:
+                        return False
+
+                print(f"Heard: {text}")
+
+                # More flexible wake word detection
+                for wake_word in WAKE_WORDS:
+                    if wake_word in text.lower() or text.lower() in wake_word:
+                        return True
+                return False
+
+            except sr.UnknownValueError:
+                return False
+
+        except sr.WaitTimeoutError:
+            return False
+        except Exception as e:
+            print(f"Error in wake word detection: {str(e)}")
+            return False
+
+
+def listen(language_code='en-US'):
+    """Enhanced command listening"""
+    with sr.Microphone() as source:
+        print("\nListening for command...")
+        recognizer.adjust_for_ambient_noise(source, duration=1)
+
+        try:
+            print("Speak now...")
+            audio = recognizer.listen(source, timeout=5, phrase_time_limit=15)
+            print("Processing...")
+
+            try:
+                query = recognizer.recognize_google(audio, language=language_code)
+                print(f"You said: {query}")
+                return query.lower()
+            except sr.UnknownValueError:
+                print("Could not understand audio")
+                return None
+
+        except sr.WaitTimeoutError:
+            print("Timeout waiting for command")
+            return None
+        except Exception as e:
+            print(f"Error: {str(e)}")
+            return None
+
+
 def main():
     # Replace with your Gemini API key
     API_KEY = "AIzaSyAy2CSsv4_dASgpUxq_VcR6S2jgGd-IrNE"
@@ -569,12 +491,19 @@ def main():
     print("Initializing Smart Assistant...")
     assistant = SmartAssistant(API_KEY)
     
-    try:
-        assistant.run()
-    except KeyboardInterrupt:
-        print("\nShutting down...")
-    finally:
-        pygame.mixer.quit()
+    print("\nSmart Assistant is ready!")
+    print("You can ask questions about the captured text, request summaries, or explanations.")
+    print("Type 'update context' to refresh the context with latest captured text.")
+    print("Type 'quit' to exit.")
+    
+    while True:
+        user_input = input("\nYou: ").strip()
+        
+        if user_input.lower() == 'quit':
+            break
+            
+        response = assistant.process_input(user_input)
+        print(f"Assistant: {response}")
 
 
 if __name__ == "__main__":
