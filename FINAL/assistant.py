@@ -15,28 +15,31 @@ import json
 import mysql.connector
 from mysql.connector import pooling
 import base64
+import audioop
+import pyaudio
 
-# Initialize components
-pygame.mixer.init()
+# Initialize components with better audio settings
+pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=4096)
 executor = ThreadPoolExecutor(max_workers=3)
 
 # Configure Gemini API
-GOOGLE_API_KEY = 'AIzaSyAy2CSsv4_dASgpUxq_VcR6S2jgGd-IrNE'  # Replace with your API key
+GOOGLE_API_KEY = 'AIzaSyAy2CSsv4_dASgpUxq_VcR6S2jgGd-IrNE'
 genai.configure(api_key=GOOGLE_API_KEY)
 model = genai.GenerativeModel("gemini-pro")
 
-# Initialize speech recognition with enhanced settings
+# Enhanced speech recognition settings
 recognizer = sr.Recognizer()
-recognizer.pause_threshold = 1
-recognizer.energy_threshold = 1000
+recognizer.pause_threshold = 0.8  # Reduced for faster response
+recognizer.energy_threshold = 3000  # Adjusted for better sensitivity
 recognizer.dynamic_energy_threshold = True
 recognizer.dynamic_energy_adjustment_damping = 0.15
 recognizer.dynamic_energy_ratio = 1.5
+recognizer.operation_timeout = 5  # Timeout for operations
 
-# Language configurations
+# Language configurations with improved settings
 SUPPORTED_LANGUAGES = {
-    'en': {'name': 'English', 'code': 'en-US'},
-    'hi': {'name': 'Hindi', 'code': 'hi-IN'}
+    'en': {'name': 'English', 'code': 'en-US', 'accent': 'co.uk'},  # British accent for better clarity
+    'hi': {'name': 'Hindi', 'code': 'hi-IN', 'accent': 'co.in'}    # Indian accent for Hindi
 }
 
 # Wake word configuration
@@ -69,13 +72,32 @@ class SmartAssistant:
         self.chat_history = self.load_chat_history()
         self.current_context = None
         
-        # Initialize speech components
+        # Enhanced speech recognition settings
         self.recognizer = sr.Recognizer()
-        self.recognizer.pause_threshold = 1
-        self.recognizer.energy_threshold = 4000
+        self.recognizer.pause_threshold = 0.8
+        self.recognizer.energy_threshold = 3000
         self.recognizer.dynamic_energy_threshold = True
         self.recognizer.dynamic_energy_adjustment_damping = 0.15
         self.recognizer.dynamic_energy_ratio = 1.5
+        self.recognizer.operation_timeout = 5
+        
+        # Audio quality settings
+        self.sample_rate = 44100
+        self.chunk_size = 1024
+        self.format = pyaudio.paInt16
+        
+        # Noise reduction settings
+        self.min_noise_duration = 0.5
+        self.noise_threshold = 300
+        
+        # Initialize microphone with optimal settings
+        try:
+            with sr.Microphone() as source:
+                print("Calibrating microphone...")
+                self.recognizer.adjust_for_ambient_noise(source, duration=2)
+                print("Microphone calibrated!")
+        except Exception as e:
+            print(f"Error initializing microphone: {str(e)}")
         
         # Initialize the chat with context
         self.initialize_chat_with_context()
@@ -173,7 +195,7 @@ class SmartAssistant:
         ])
 
     def process_input(self, user_input):
-        """Process user input with context awareness"""
+        """Process user input with enhanced capabilities for both context and general queries"""
         try:
             # Check if we need to update context
             if "update context" in user_input.lower():
@@ -192,14 +214,16 @@ class SmartAssistant:
                 else:
                     return "No new context available."
 
-            # Add context awareness to certain types of questions
-            if any(keyword in user_input.lower() for keyword in ['summarize', 'explain', 'what does', 'meaning', 'translate']):
+            # Handle different types of queries
+            query_type = self.classify_query(user_input)
+            
+            if query_type == "context":
+                # Handle context-related queries
                 if not self.current_context:
                     context = self.get_latest_context()
                     if not context:
                         return "I don't have any captured text to work with. Please capture some text first."
                 
-                # Enhance the user's question with context
                 enhanced_input = f"""Regarding this text:
                 Original: {self.current_context['original_text']}
                 English: {self.current_context['translations']['english']}
@@ -209,8 +233,27 @@ class SmartAssistant:
                 User's question: {user_input}"""
                 
                 response = self.chat.send_message(enhanced_input)
+            
+            elif query_type == "general_knowledge":
+                # Handle general knowledge questions
+                prompt = f"""As a helpful AI assistant, please answer this question:
+                {user_input}
+                
+                Rules:
+                1. Be concise but informative
+                2. Use simple language
+                3. If relevant, provide an example
+                4. If it's a technical topic, explain in layman's terms
+                """
+                response = self.chat.send_message(prompt)
+            
+            elif query_type == "utility":
+                # Handle utility functions
+                response_text = self.handle_utility_query(user_input)
+                return response_text
+            
             else:
-                # For other types of questions, just pass through
+                # Default conversation mode
                 response = self.chat.send_message(user_input)
             
             # Update chat history
@@ -227,6 +270,60 @@ class SmartAssistant:
             error_msg = f"Error processing input: {str(e)}"
             print(error_msg)
             return error_msg
+
+    def classify_query(self, query):
+        """Classify the type of query for appropriate handling"""
+        query_lower = query.lower()
+        
+        # Context-related keywords
+        context_keywords = ['text', 'translation', 'translate', 'captured', 'image', 
+                          'what does it say', 'meaning of the text']
+        
+        # Utility-related keywords
+        utility_keywords = ['time', 'weather', 'set', 'reminder', 'alarm', 'timer',
+                          'calculate', 'convert']
+        
+        # General knowledge keywords
+        knowledge_keywords = ['what is', 'who is', 'where is', 'when did', 'why does',
+                            'how does', 'explain', 'tell me about', 'define']
+        
+        # Check query type
+        if any(keyword in query_lower for keyword in context_keywords):
+            return "context"
+        elif any(keyword in query_lower for keyword in utility_keywords):
+            return "utility"
+        elif any(keyword in query_lower for keyword in knowledge_keywords):
+            return "general_knowledge"
+        else:
+            return "conversation"
+
+    def handle_utility_query(self, query):
+        """Handle utility-based queries using existing functions"""
+        query_lower = query.lower()
+        
+        # Time-related queries
+        if any(word in query_lower for word in ['time', 'समय']):
+            return get_current_time(detect_language(query))
+        
+        # Story requests
+        if any(word in query_lower for word in ['story', 'कहानी']):
+            return get_story(detect_language(query))
+        
+        # Word definitions
+        if any(phrase in query_lower for phrase in ['meaning of', 'define', 'मतलब']):
+            words = query_lower.split()
+            word = words[-1]
+            return get_word_info(word, detect_language(query))
+        
+        # Wikipedia information
+        if any(phrase in query_lower for phrase in ['tell me about', 'who is', 'what is', 'के बारे में बताओ']):
+            query_terms = query_lower.split()
+            start_idx = next((i for i, word in enumerate(query_terms) 
+                            if word in ['about', 'is', 'बारे']) + 1, len(query_terms))
+            search_query = ' '.join(query_terms[start_idx:])
+            return get_wikipedia_info(search_query, detect_language(query))
+        
+        return None
 
     def save_chat_history(self):
         """Save chat history to file"""
@@ -249,52 +346,102 @@ class SmartAssistant:
         return []
 
     def speak(self, text, lang='en'):
-        """Enhanced text-to-speech with proper cleanup"""
+        """Enhanced text-to-speech with better audio quality"""
         try:
-            temp_file = f"temp_speech_{time.time()}.mp3"
-            tts = gTTS(text=text, lang='hi' if lang == 'hi' else 'en', slow=False)
-            tts.save(temp_file)
-
-            pygame.mixer.music.load(temp_file)
-            pygame.mixer.music.play()
-
-            while pygame.mixer.music.get_busy():
-                pygame.time.Clock().tick(20)
-                time.sleep(0.05)
-
-            pygame.mixer.music.unload()
-            os.remove(temp_file)
+            # Split long text into natural sentences
+            sentences = text.split('। ' if lang == 'hi' else '. ')
+            
+            for sentence in sentences:
+                if not sentence.strip():
+                    continue
+                    
+                temp_file = f"temp_speech_{time.time()}.mp3"
+                
+                # Enhanced TTS settings
+                tts = gTTS(
+                    text=sentence.strip(),
+                    lang='hi' if lang == 'hi' else 'en',
+                    slow=False,
+                    tld=SUPPORTED_LANGUAGES[lang]['accent']  # Use appropriate accent
+                )
+                
+                # Save with higher quality
+                tts.save(temp_file)
+                
+                # Play with enhanced audio settings
+                pygame.mixer.music.set_volume(0.8)  # Adjusted volume
+                pygame.mixer.music.load(temp_file)
+                pygame.mixer.music.play()
+                
+                # Wait for audio to finish with smoother playback
+                while pygame.mixer.music.get_busy():
+                    pygame.time.Clock().tick(60)  # Increased frame rate
+                
+                # Proper cleanup
+                pygame.mixer.music.unload()
+                os.remove(temp_file)
+                
+                # Small pause between sentences for natural speech
+                time.sleep(0.3)
+                
         except Exception as e:
             print(f"Speech Error: {str(e)}")
+            # Reinitialize audio system on error
             pygame.mixer.quit()
-            pygame.mixer.init()
+            pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=4096)
+
+    def reduce_noise(self, audio_data):
+        """Apply noise reduction to audio data"""
+        try:
+            # Calculate RMS of audio data
+            rms = audioop.rms(audio_data, 2)
+            
+            # Apply noise gate
+            if rms < self.noise_threshold:
+                return b'\x00' * len(audio_data)
+            
+            return audio_data
+        except Exception as e:
+            print(f"Noise reduction error: {str(e)}")
+            return audio_data
 
     def listen_for_wake_word(self):
-        """Enhanced wake word detection with noise handling"""
+        """Enhanced wake word detection with noise reduction"""
         print("\nWaiting for wake word 'Hey Assistant'...")
         
-        with sr.Microphone() as source:
+        with sr.Microphone(sample_rate=self.sample_rate) as source:
+            # Dynamic noise adjustment
             print("Adjusting for ambient noise...")
             self.recognizer.adjust_for_ambient_noise(source, duration=2)
             
             try:
                 print("Listening for wake word...")
-                audio = self.recognizer.listen(source, timeout=3, phrase_time_limit=5)
+                audio = self.recognizer.listen(
+                    source,
+                    timeout=3,
+                    phrase_time_limit=5,
+                    snowboy_configuration=None  # Disable snowboy for better reliability
+                )
+                
+                # Apply noise reduction
+                audio_data = self.reduce_noise(audio.get_raw_data())
                 
                 try:
-                    # Try multiple language recognition
-                    text = ""
-                    try:
-                        text = self.recognizer.recognize_google(audio, language='en-US').lower()
-                    except:
+                    # Try multiple language recognition with error recovery
+                    for lang in ['en-US', 'hi-IN']:
                         try:
-                            text = self.recognizer.recognize_google(audio, language='hi-IN').lower()
-                        except:
-                            return False
-                    
-                    print(f"Heard: {text}")
-                    return any(wake_word in text.lower() or text.lower() in wake_word 
-                             for wake_word in self.wake_words)
+                            text = self.recognizer.recognize_google(
+                                audio,
+                                language=lang,
+                                show_all=False  # Get best result only
+                            )
+                            if text:
+                                print(f"Heard: {text}")
+                                return any(wake_word in text.lower() or text.lower() in wake_word 
+                                         for wake_word in self.wake_words)
+                        except sr.UnknownValueError:
+                            continue
+                    return False
                     
                 except sr.UnknownValueError:
                     return False
@@ -304,31 +451,43 @@ class SmartAssistant:
                 return False
 
     def listen_for_command(self):
-        """Enhanced command listening with multiple language support"""
-        with sr.Microphone() as source:
+        """Enhanced command listening with better audio processing"""
+        with sr.Microphone(sample_rate=self.sample_rate) as source:
             print("\nListening for command...")
+            
+            # Dynamic noise adjustment
             self.recognizer.adjust_for_ambient_noise(source, duration=1)
             
             try:
                 print("Speak now...")
-                audio = self.recognizer.listen(source, timeout=5, phrase_time_limit=15)
+                audio = self.recognizer.listen(
+                    source,
+                    timeout=5,
+                    phrase_time_limit=15,
+                    snowboy_configuration=None
+                )
+                
+                # Apply noise reduction
+                audio_data = self.reduce_noise(audio.get_raw_data())
+                
                 print("Processing...")
                 
-                # Try both English and Hindi recognition
-                try:
-                    text = self.recognizer.recognize_google(audio, language='en-US')
-                except:
+                # Try recognition with multiple languages and error recovery
+                for lang in ['en-US', 'hi-IN']:
                     try:
-                        text = self.recognizer.recognize_google(audio, language='hi-IN')
+                        text = self.recognizer.recognize_google(
+                            audio,
+                            language=lang,
+                            show_all=False
+                        )
+                        if text:
+                            print(f"You said: {text}")
+                            return text.lower()
                     except sr.UnknownValueError:
-                        self.speak("Sorry, I couldn't understand that. Could you please repeat?")
-                        return None
-                    except Exception as e:
-                        print(f"Error: {str(e)}")
-                        return None
+                        continue
                 
-                print(f"You said: {text}")
-                return text.lower()
+                self.speak("Sorry, I couldn't understand that. Could you please repeat?")
+                return None
                 
             except sr.WaitTimeoutError:
                 self.speak("I didn't hear anything. Please try again.")
@@ -338,17 +497,21 @@ class SmartAssistant:
                 return None
 
     def run(self):
-        """Main voice interaction loop"""
+        """Main voice interaction loop with improved handling"""
         self.speak("Hello! I'm your smart assistant. Say 'Hey Assistant' to activate me!")
         
         while True:
             try:
-                # Listen for wake word
+                # Listen for wake word with retry mechanism
                 if not self.is_active:
-                    if self.listen_for_wake_word():
-                        self.is_active = True
-                        self.speak("Yes, I'm listening! How can I help you?")
-                        continue
+                    retry_count = 0
+                    while retry_count < 3:  # Try up to 3 times
+                        if self.listen_for_wake_word():
+                            self.is_active = True
+                            self.speak("Yes, I'm listening! How can I help you?")
+                            break
+                        retry_count += 1
+                    continue
                 
                 # Process commands when active
                 if self.is_active:
@@ -457,23 +620,51 @@ def get_story(lang='en'):
 
 
 def get_current_time(lang='en'):
-    current_time = datetime.now().strftime("%I:%M %p")
-    return f"वर्तमान समय {current_time} है" if lang == 'hi' else f"The current time is {current_time}"
+    """Get current time in specified language"""
+    current_time = datetime.now()
+    if lang == 'hi':
+        time_str = current_time.strftime("%I:%M %p")
+        # Convert to Hindi
+        time_str = time_str.replace('AM', 'सुबह').replace('PM', 'शाम')
+        return f"वर्तमान समय {time_str} है"
+    else:
+        return f"The current time is {current_time.strftime('%I:%M %p')}"
 
 
-@lru_cache(maxsize=100)
-def get_wikipedia_info(query, lang='en'):
+def get_wikipedia_info(query, lang='en', sentences=3):
+    """Get information from Wikipedia in specified language"""
     try:
+        # Set language for Wikipedia
         wikipedia.set_lang('hi' if lang == 'hi' else 'en')
-        summary = wikipedia.summary(query, sentences=2)
-        return summary
-    except:
+        
+        # Search Wikipedia
         try:
-            prompt = f"Provide a brief overview of {query} in {'Hindi' if lang == 'hi' else 'English'}"
-            response = model.generate_content(prompt)
-            return response.text.strip()
-        except:
-            return f"Sorry, I couldn't find information about '{query}'"
+            page = wikipedia.page(query)
+            summary = wikipedia.summary(query, sentences=sentences)
+            return summary
+        except wikipedia.DisambiguationError as e:
+            # Handle disambiguation pages
+            try:
+                # Try the first suggestion
+                page = wikipedia.page(e.options[0])
+                summary = wikipedia.summary(e.options[0], sentences=sentences)
+                return summary
+            except:
+                return f"Multiple results found for '{query}'. Please be more specific."
+        except wikipedia.PageError:
+            return f"Sorry, I couldn't find any information about '{query}'"
+    except Exception as e:
+        return f"Error retrieving information: {str(e)}"
+
+
+def format_response(text, lang='en'):
+    """Format response text based on language"""
+    if lang == 'hi':
+        # Add appropriate Hindi punctuation and formatting
+        text = text.replace('.', '।')
+        text = text.replace('!', '!')
+        return text
+    return text
 
 
 def generate_response(user_input, conversation_history, input_lang):
@@ -563,7 +754,6 @@ def process_query(query, conversation_history):
 
 
 def main():
-    # Replace with your Gemini API key
     API_KEY = "AIzaSyAy2CSsv4_dASgpUxq_VcR6S2jgGd-IrNE"
     
     print("Initializing Smart Assistant...")
