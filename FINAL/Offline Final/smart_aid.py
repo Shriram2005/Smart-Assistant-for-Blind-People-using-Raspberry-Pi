@@ -20,8 +20,15 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Configure Tesseract path
+# Configure Tesseract path and languages
 pytesseract.pytesseract.tesseract_cmd = r'/usr/bin/tesseract'
+
+# Language configurations
+SUPPORTED_LANGUAGES = {
+    'en': {'name': 'english', 'tesseract': 'eng', 'confidence_threshold': 0.3},
+    'hi': {'name': 'hindi', 'tesseract': 'hin', 'confidence_threshold': 0.25},
+    'mr': {'name': 'marathi', 'tesseract': 'mar', 'confidence_threshold': 0.25}
+}
 
 # GPIO Configuration
 BUTTON_PIN = 18
@@ -52,6 +59,17 @@ def initialize_system():
     global camera, translator
     
     try:
+        # Check if required Tesseract language data is installed
+        required_langs = [lang['tesseract'] for lang in SUPPORTED_LANGUAGES.values()]
+        installed_langs = pytesseract.get_languages()
+        
+        missing_langs = [lang for lang in required_langs if lang not in installed_langs]
+        if missing_langs:
+            logger.error(f"Missing Tesseract language data for: {', '.join(missing_langs)}")
+            logger.error("Please install required language data using:")
+            logger.error(f"sudo apt-get install tesseract-ocr-{' tesseract-ocr-'.join(missing_langs)}")
+            return False
+        
         camera = Picamera2()
         translator = Translator()
         
@@ -131,7 +149,7 @@ def preprocess_image(image_path):
         return image_path
 
 def extract_text(image_path):
-    """Extract text using multiple OCR configurations."""
+    """Extract text using multiple OCR configurations and languages."""
     ocr_configs = [
         '--oem 3 --psm 3',  # Default
         '--oem 3 --psm 1',  # Automatic page segmentation
@@ -139,26 +157,47 @@ def extract_text(image_path):
         '--oem 3 --psm 6'   # Assume uniform block of text
     ]
     
-    best_text = ''
-    max_confidence = 0
+    best_results = {lang_code: {'text': '', 'confidence': 0} 
+                   for lang_code in SUPPORTED_LANGUAGES.keys()}
     
-    for config in ocr_configs:
-        try:
-            text = pytesseract.image_to_string(
-                Image.open(image_path),
-                config=config
-            ).strip()
-            
-            # Calculate confidence score
-            confidence = len([c for c in text if c.isalnum()]) / max(len(text), 1)
-            
-            if confidence > max_confidence and len(text) > 10:
-                best_text = text
-                max_confidence = confidence
-        except Exception as e:
-            logger.error(f"OCR failed with config {config}: {str(e)}")
+    for lang_code, lang_info in SUPPORTED_LANGUAGES.items():
+        tesseract_lang = lang_info['tesseract']
+        confidence_threshold = lang_info['confidence_threshold']
+        
+        for config in ocr_configs:
+            try:
+                # Add language-specific configuration
+                full_config = f"{config} -l {tesseract_lang}"
+                
+                text = pytesseract.image_to_string(
+                    Image.open(image_path),
+                    config=full_config
+                ).strip()
+                
+                # Calculate confidence score
+                if text:
+                    # For non-Latin scripts, adjust confidence calculation
+                    if lang_code in ['hi', 'mr']:
+                        # Count non-space characters instead of alphanumeric
+                        confidence = len([c for c in text if not c.isspace()]) / len(text)
+                    else:
+                        confidence = len([c for c in text if c.isalnum()]) / len(text)
+                    
+                    if confidence > best_results[lang_code]['confidence'] and len(text) > 5:
+                        best_results[lang_code]['text'] = text
+                        best_results[lang_code]['confidence'] = confidence
+                
+            except Exception as e:
+                logger.error(f"OCR failed for {lang_info['name']} with config {config}: {str(e)}")
     
-    return best_text if max_confidence > 0.3 else ''
+    # Find the best result across all languages
+    best_lang = max(best_results.items(), 
+                   key=lambda x: x[1]['confidence'])
+    
+    if best_lang[1]['confidence'] > SUPPORTED_LANGUAGES[best_lang[0]]['confidence_threshold']:
+        logger.info(f"Detected text in {SUPPORTED_LANGUAGES[best_lang[0]]['name']}")
+        return best_lang[1]['text'], best_lang[0]
+    return '', None
 
 def translate_text(text, target_lang):
     """Translate text with retry mechanism."""
@@ -198,7 +237,7 @@ def capture_and_translate():
         
         # Process image and extract text
         processed_path = preprocess_image(image_path)
-        extracted_text = extract_text(processed_path)
+        extracted_text, detected_lang = extract_text(processed_path)
         
         if not extracted_text:
             logger.warning("No text detected in image")
@@ -206,31 +245,20 @@ def capture_and_translate():
             return False
         
         logger.info(f"Extracted text: {extracted_text}")
-        
-        # Detect language and translate
-        try:
-            source_lang = detect(extracted_text)
-        except:
-            source_lang = 'en'
+        logger.info(f"Detected language: {SUPPORTED_LANGUAGES[detected_lang]['name']}")
         
         # Generate audio for original text
-        tts = gTTS(extracted_text, lang=source_lang)
+        tts = gTTS(extracted_text, lang=detected_lang)
         tts.save(AUDIO_PATHS['original'])
         
-        # Translate to target languages
-        translations = {
-            'english': ('en', AUDIO_PATHS['english']),
-            'hindi': ('hi', AUDIO_PATHS['hindi']),
-            'marathi': ('mr', AUDIO_PATHS['marathi'])
-        }
-        
-        for lang, (code, path) in translations.items():
-            if code != source_lang:
-                translated = translate_text(extracted_text, code)
+        # Translate to other supported languages
+        for target_code, target_info in SUPPORTED_LANGUAGES.items():
+            if target_code != detected_lang:
+                translated = translate_text(extracted_text, target_code)
                 if translated:
-                    tts = gTTS(translated, lang=code)
-                    tts.save(path)
-                    logger.info(f"Translation to {lang} completed")
+                    tts = gTTS(translated, lang=target_code)
+                    tts.save(AUDIO_PATHS[target_info['name']])
+                    logger.info(f"Translation to {target_info['name']} completed")
         
         play_audio(AUDIO_PATHS['complete'])
         return True
