@@ -53,6 +53,8 @@ button_press_count = 0
 camera = None
 translator = None
 audio_lock = Lock()
+current_language = None
+current_audio_process = None  # Add this to track current audio playback
 
 def initialize_system():
     """Initialize camera, translator and create feedback sounds."""
@@ -95,14 +97,20 @@ def initialize_system():
 
 def play_audio(audio_path):
     """Play audio with proper locking and error handling."""
+    global current_audio_process
+    
     with audio_lock:
         try:
             # Kill any currently playing audio
-            subprocess.run(['pkill', '-f', 'mpg123'], stderr=subprocess.DEVNULL)
+            if current_audio_process and current_audio_process.poll() is None:
+                subprocess.run(['pkill', '-f', 'mpg123'], stderr=subprocess.DEVNULL)
+                current_audio_process = None
+            
             # Start new audio playback
-            subprocess.run(['mpg123', '-q', audio_path], stderr=subprocess.DEVNULL)
+            current_audio_process = subprocess.Popen(['mpg123', '-q', audio_path], stderr=subprocess.DEVNULL)
         except Exception as e:
             logger.error(f"Audio playback failed: {str(e)}")
+            current_audio_process = None
 
 def enhance_image(image):
     """Apply advanced image enhancement techniques."""
@@ -217,8 +225,18 @@ def translate_text(text, target_lang):
     
     return None
 
+def get_language_sequence(detected_lang):
+    """Get the appropriate sequence of audio playback based on detected language."""
+    sequences = {
+        'en': ['original', 'hindi', 'marathi'],
+        'hi': ['original', 'english', 'marathi'],
+        'mr': ['original', 'english', 'hindi']
+    }
+    return sequences.get(detected_lang, ['original', 'english', 'hindi', 'marathi'])
+
 def capture_and_translate():
     """Capture image and perform translation with proper error handling."""
+    global current_language
     logger.info("Starting capture and translate process")
     
     try:
@@ -247,6 +265,9 @@ def capture_and_translate():
         logger.info(f"Extracted text: {extracted_text}")
         logger.info(f"Detected language: {SUPPORTED_LANGUAGES[detected_lang]['name']}")
         
+        # Store the detected language
+        current_language = detected_lang
+        
         # Generate audio for original text
         tts = gTTS(extracted_text, lang=detected_lang)
         tts.save(AUDIO_PATHS['original'])
@@ -270,25 +291,28 @@ def capture_and_translate():
 
 def handle_button_press():
     """Handle button press events with proper state management."""
-    global button_press_count
+    global button_press_count, current_audio_process
     
     try:
+        # Stop any currently playing audio immediately
+        if current_audio_process and current_audio_process.poll() is None:
+            subprocess.run(['pkill', '-f', 'mpg123'], stderr=subprocess.DEVNULL)
+            current_audio_process = None
+        
         if button_press_count == 0:
             success = capture_and_translate()
             if success:
                 button_press_count = 1
         else:
-            audio_files = [
-                AUDIO_PATHS['original'],
-                AUDIO_PATHS['english'],
-                AUDIO_PATHS['hindi'],
-                AUDIO_PATHS['marathi']
-            ]
+            # Get the appropriate sequence based on detected language
+            sequence = get_language_sequence(current_language)
             
-            if os.path.exists(audio_files[button_press_count - 1]):
-                play_audio(audio_files[button_press_count - 1])
-            
-            button_press_count = (button_press_count + 1) % 5
+            if button_press_count <= len(sequence):
+                audio_file = AUDIO_PATHS[sequence[button_press_count - 1]]
+                if os.path.exists(audio_file):
+                    play_audio(audio_file)
+                
+                button_press_count = (button_press_count + 1) % (len(sequence) + 1)
     
     except Exception as e:
         logger.error(f"Button press handling failed: {str(e)}")
@@ -297,6 +321,8 @@ def handle_button_press():
 
 def main():
     """Main program loop with proper initialization and cleanup."""
+    global current_audio_process
+    
     logger.info("Starting Smart Aid System")
     
     if not initialize_system():
@@ -312,9 +338,13 @@ def main():
                 time.sleep(0.5)
     except KeyboardInterrupt:
         logger.info("Program stopped by user")
+        if current_audio_process:
+            subprocess.run(['pkill', '-f', 'mpg123'], stderr=subprocess.DEVNULL)
     except Exception as e:
         logger.error(f"Unexpected error: {str(e)}")
     finally:
+        if current_audio_process:
+            subprocess.run(['pkill', '-f', 'mpg123'], stderr=subprocess.DEVNULL)
         if camera:
             camera.stop()
         GPIO.cleanup()
