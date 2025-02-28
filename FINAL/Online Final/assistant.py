@@ -49,13 +49,14 @@ WAKE_WORDS = {
     'हेलो असिस्टेंट', 'हाय असिस्टेंट'
 }
 
-# AWS RDS Database configuration
+# Replace AWS RDS Database configuration with Aiven MySQL Configuration
 DB_CONFIG = {
-    'host': 'raspberrypi.c5csoekmm1vs.us-east-1.rds.amazonaws.com',
-    'user': 'admin',
-    'password': 'raspberrypi12',
-    'database': 'captured_data',
-    'port': 3306
+    'host': 'mysql-raspberry-pi-shrirammange.k.aivencloud.com',  # Aiven MySQL endpoint
+    'user': 'avnadmin',                # Default Aiven admin username
+    'password': 'AVNS_YkuryCt4s_wLBuD8xAb',       # Your Aiven password
+    'database': 'defaultdb',       # Database name
+    'port': 18836,                     # Your Aiven MySQL port
+    'ssl_ca': 'OCR_laptop_v1/FINAL/Online Final/ca.pem'        # Path to Aiven CA certificate
 }
 
 class SmartAssistant:
@@ -107,13 +108,16 @@ class SmartAssistant:
         self.is_active = False
 
     def get_db_connection(self):
-        """Get a database connection with retry mechanism"""
+        """Get a database connection with retry mechanism and SSL configuration"""
         max_retries = 3
         retry_delay = 2
         
         for attempt in range(max_retries):
             try:
-                conn = mysql.connector.connect(**DB_CONFIG)
+                conn = mysql.connector.connect(
+                    **DB_CONFIG,
+                    ssl_verify_cert=True  # Enable SSL verification
+                )
                 conn.set_charset_collation('utf8mb4', 'utf8mb4_unicode_ci')
                 return conn
             except Exception as e:
