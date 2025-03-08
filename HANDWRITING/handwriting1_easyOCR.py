@@ -1,5 +1,6 @@
 import cv2
 import easyocr
+import matplotlib.pyplot as plt
 
 def preprocess_image(image_path):
     # Load the image
@@ -32,3 +33,8 @@ if __name__ == "__main__":
     image_path = r'C:\Users\Shriram\Desktop\project\OCR_laptop_v1\Demo Images\img4.jpg'  # Replace with your image path
     text = extract_handwritten_text(image_path)
     print("Extracted Text:", text)
+
+    # Display the image using Matplotlib
+    plt.imshow(cv2.cvtColor(cv2.imread(image_path), cv2.COLOR_BGR2RGB))
+    plt.axis('off')  # Hide axes
+    plt.show()
