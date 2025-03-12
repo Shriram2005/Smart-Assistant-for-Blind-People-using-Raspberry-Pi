@@ -1,11 +1,18 @@
 import cv2
 import numpy as np
 import re
+import os
 from paddleocr import PaddleOCR
 from textblob import TextBlob
 
-# Initialize PaddleOCR
-ocr = PaddleOCR(use_angle_cls=True, lang="en")
+# Initialize PaddleOCR with better error handling
+try:
+    print("Initializing PaddleOCR...")
+    ocr = PaddleOCR(use_angle_cls=True, lang="en", show_log=False)
+    print("PaddleOCR initialized successfully")
+except Exception as e:
+    print(f"Error initializing PaddleOCR: {e}")
+    exit(1)
 
 def preprocess_image(image_path):
     """Enhance image quality before OCR for better text recognition."""
@@ -26,11 +33,20 @@ def preprocess_image(image_path):
 
 def extract_text(image_path):
     """Extract text from the preprocessed image using PaddleOCR."""
-    result = ocr.ocr(image_path, cls=True)
-    
-    # Combine recognized words into a structured text output
-    extracted_text = " ".join([word_info[1][0] for line in result for word_info in line])
-    return extracted_text.strip()
+    try:
+        print(f"Extracting text from {image_path}...")
+        result = ocr.ocr(image_path, cls=True)
+        
+        if result is None or len(result) == 0:
+            print("No text detected in the image.")
+            return ""
+            
+        # Combine recognized words into a structured text output
+        extracted_text = " ".join([word_info[1][0] for line in result for word_info in line if word_info])
+        return extracted_text.strip()
+    except Exception as e:
+        print(f"Error during text extraction: {e}")
+        return ""
 
 def correct_spelling(text):
     """Correct spelling errors using TextBlob for context-aware fixes."""
@@ -47,21 +63,33 @@ def clean_extracted_text(text):
     return text
 
 # === Run OCR Workflow ===
-image_path = "C:/Users/Shriram/Desktop/project/OCR_laptop_v1/Demo Images/img4.jpg" # Add path to the input image
+image_path = r'C:\Users\Shriram\Desktop\project\OCR_laptop_v1\Demo Images\handwritten_page.jpg' # Add path to the input image
+
+# Check if image exists
+if not os.path.exists(image_path):
+    print(f"Error: Image file not found at {image_path}")
+    exit(1)
 
 # Step 1: Preprocess Image
+print("Preprocessing image...")
 preprocessed_image = preprocess_image(image_path)
 
 # Step 2: Run OCR on the preprocessed image
 extracted_text = extract_text(image_path)
 
 # Step 3: Clean & Correct Text
+print("Cleaning and correcting text...")
 clean_text = clean_extracted_text(extracted_text)
 final_text = correct_spelling(clean_text)
 
 # Print and Save Results
-print("Final Extracted Text://n", final_text)
+print("Final Extracted Text:\n", final_text)  # Fixed newline character
 
-text_file_path = "A_paddle_trying/output.txt" # Create a text file and add it's path here 
+# Ensure directory exists for output file
+os.makedirs(os.path.dirname("HANDWRITING/"), exist_ok=True)
+
+text_file_path = "HANDWRITING/output.txt" # Create a text file and add it's path here 
 with open(text_file_path, "w", encoding="utf-8") as file:
     file.write(final_text)
+    
+print(f"Output saved to {os.path.abspath(text_file_path)}")

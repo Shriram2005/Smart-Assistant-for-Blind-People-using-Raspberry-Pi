@@ -30,7 +30,7 @@ def extract_handwritten_text(image_path):
     return extracted_text
 
 if __name__ == "__main__":
-    image_path = r'C:\Users\Shriram\Desktop\project\OCR_laptop_v1\Demo Images\img4.jpg'  # Replace with your image path
+    image_path = r'C:\Users\Shriram\Desktop\project\OCR_laptop_v1\Demo Images\handwritten_page.jpg'  # Replace with your image path
     text = extract_handwritten_text(image_path)
     print("Extracted Text:", text)
 
