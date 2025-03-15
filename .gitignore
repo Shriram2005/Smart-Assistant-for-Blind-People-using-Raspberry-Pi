@@ -1,11 +1,9 @@
 saved_img.jpg
 output.mp3
 trying/translated_audio.mp3
-.idea/material_theme_project_new.xml
-.idea/misc.xml
-.idea/modules.xml
-.idea/OCR_laptop_v1.iml
-.idea/vcs.xml
-.idea/inspectionProfiles/profiles_settings.xml
+.idea/
 .venv/
+env/
+env3_10/
 FINAL/Online Final/ca.pem
+*env*/

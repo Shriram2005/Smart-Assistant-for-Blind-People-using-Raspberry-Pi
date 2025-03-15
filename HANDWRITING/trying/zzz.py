@@ -39,7 +39,7 @@ def extract_text(image_path):
         
         if result is None or len(result) == 0:
             print("No text detected in the image.")
-            return ""
+        return ""
             
         # Combine recognized words into a structured text output
         extracted_text = " ".join([word_info[1][0] for line in result for word_info in line if word_info])
@@ -47,17 +47,17 @@ def extract_text(image_path):
     except Exception as e:
         print(f"Error during text extraction: {e}")
         return ""
-
+        
 def correct_spelling(text):
     """Correct spelling errors using TextBlob for context-aware fixes."""
-    blob = TextBlob(text)
+        blob = TextBlob(text)
     corrected_text = blob.correct()
     return str(corrected_text)
 
 def clean_extracted_text(text):
     """Clean and format extracted text to remove extra spaces and fix common OCR misreads."""
-    text = re.sub(r"//n+", " ", text)  # Remove extra newlines
-    text = re.sub(r"//s+", " ", text).strip()  # Remove extra spaces
+    text = re.sub(r"\n+", " ", text)  # Remove extra newlines
+    text = re.sub(r"\s+", " ", text).strip()  # Remove extra spaces
     text = re.sub(r"1", "l", text)  # Fix OCR misreading "1" as "l"
     text = re.sub(r"0", "o", text)  # Fix OCR misreading "0" as "o"
     return text
