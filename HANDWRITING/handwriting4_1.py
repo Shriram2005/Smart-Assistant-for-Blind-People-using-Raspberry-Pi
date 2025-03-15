@@ -387,6 +387,3 @@ if __name__ == "__main__":
         file.write(text)
 
     print(f"\nText saved to {output_path}")
-
-    # Uncomment to process a directory of images
-    # process_batch("path/to/images/directory")
