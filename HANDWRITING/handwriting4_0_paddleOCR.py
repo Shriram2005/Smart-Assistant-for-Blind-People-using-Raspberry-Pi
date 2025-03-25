@@ -47,7 +47,7 @@ def clean_extracted_text(text):
     return text
 
 # === Run OCR Workflow ===
-image_path = r'C:\Users\Shriram\Desktop\project\OCR_laptop_v1\Demo Images\img8.jpg' # Add path to the input image
+image_path = r'C:\Users\Shriram\Desktop\project\OCR_laptop_v1\Demo Images\handwritten_page.jpg' # Add path to the input image
 
 # Step 1: Preprocess Image
 preprocessed_image = preprocess_image(image_path)
