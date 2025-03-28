@@ -12,6 +12,114 @@ import subprocess
 from langdetect import detect
 import logging
 from threading import Lock
+from paddleocr import PaddleOCR
+import mysql.connector
+import mysql.connector.pooling
+import sys
+
+# Aiven MySQL Configuration
+MYSQL_CONFIG = {
+    'host': 'mysql-raspberry-pi-shrirammange.k.aivencloud.com',  # Aiven MySQL endpoint
+    'user': 'avnadmin',                # Default Aiven admin username
+    'password': 'AVNS_YkuryCt4s_wLBuD8xAb',       # Your Aiven password
+    'database': 'defaultdb',       # Database name
+    'port': 18836,                     # Your Aiven MySQL port
+    'pool_name': 'mypool',
+    'pool_size': 5,
+    'connect_timeout': 10,
+    'ssl_ca': '/home/pi/ca.pem'        # Path to Aiven CA certificate
+}
+
+# Create a connection pool
+try:
+    connection_pool = mysql.connector.pooling.MySQLConnectionPool(**MYSQL_CONFIG)
+    print("Aiven database connection pool created successfully")
+except Exception as e:
+    print(f"Error creating connection pool: {str(e)}")
+    sys.exit(1)
+
+def get_db_connection():
+    """Get a connection from the pool with retry mechanism"""
+    max_retries = 3
+    retry_delay = 2
+    
+    for attempt in range(max_retries):
+        try:
+            connection = connection_pool.get_connection()
+            return connection
+        except Exception as e:
+            if attempt == max_retries - 1:
+                print(f"Failed to get database connection after {max_retries} attempts: {str(e)}")
+                raise
+            print(f"Connection attempt {attempt + 1} failed, retrying in {retry_delay} seconds...")
+            time.sleep(retry_delay)
+
+def init_mysql_database():
+    """Initialize the database with proper error handling"""
+    connection = None
+    try:
+        connection = get_db_connection()
+        cursor = connection.cursor()
+        
+        # Create table if it doesn't exist with optimized structure
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS captured_images (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                image LONGBLOB NOT NULL,
+                original_text TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+                english_translation TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+                hindi_translation TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+                marathi_translation TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_timestamp (timestamp)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        ''')
+        
+        connection.commit()
+        print("Aiven MySQL database initialized successfully")
+        
+    except Exception as e:
+        print(f"Error initializing Aiven MySQL database: {str(e)}")
+        sys.exit(1)
+    finally:
+        if connection:
+            if 'cursor' in locals():
+                cursor.close()
+            connection.close()
+
+def store_in_mysql(image_path, original_text, english_text, hindi_text, marathi_text):
+    """Store data in Aiven MySQL with proper connection handling"""
+    connection = None
+    try:
+        # Read and compress the image file
+        with open(image_path, "rb") as image_file:
+            image_data = image_file.read()
+        
+        connection = get_db_connection()
+        cursor = connection.cursor()
+        
+        # Insert data with proper parameter handling
+        query = '''
+            INSERT INTO captured_images 
+            (image, original_text, english_translation, hindi_translation, marathi_translation)
+            VALUES (%s, %s, %s, %s, %s)
+        '''
+        values = (image_data, original_text, english_text, hindi_text, marathi_text)
+        
+        cursor.execute(query, values)
+        connection.commit()
+        
+        print(f"Data stored in Aiven MySQL with ID: {cursor.lastrowid}")
+        
+    except Exception as e:
+        print(f"Error storing data in Aiven MySQL: {str(e)}")
+        if connection:
+            connection.rollback()
+    finally:
+        if connection:
+            if 'cursor' in locals():
+                cursor.close()
+            connection.close()
 
 # Configure logging
 logging.basicConfig(
@@ -168,35 +276,61 @@ def extract_text(image_path):
     best_results = {lang_code: {'text': '', 'confidence': 0} 
                    for lang_code in SUPPORTED_LANGUAGES.keys()}
     
+    # Initialize PaddleOCR for English
+    paddle_ocr = PaddleOCR(use_angle_cls=True, lang='en')
+    
     for lang_code, lang_info in SUPPORTED_LANGUAGES.items():
         tesseract_lang = lang_info['tesseract']
         confidence_threshold = lang_info['confidence_threshold']
         
-        for config in ocr_configs:
-            try:
-                # Add language-specific configuration
-                full_config = f"{config} -l {tesseract_lang}"
-                
-                text = pytesseract.image_to_string(
-                    Image.open(image_path),
-                    config=full_config
-                ).strip()
-                
-                # Calculate confidence score
-                if text:
-                    # For non-Latin scripts, adjust confidence calculation
-                    if lang_code in ['hi', 'mr']:
-                        # Count non-space characters instead of alphanumeric
-                        confidence = len([c for c in text if not c.isspace()]) / len(text)
-                    else:
-                        confidence = len([c for c in text if c.isalnum()]) / len(text)
+        try:
+            if lang_code == 'en':
+                # Use PaddleOCR for English
+                result = paddle_ocr.ocr(image_path, cls=True)
+                if result and result[0]:
+                    extracted_lines = []
+                    confidence_sum = 0
+                    line_count = 0
                     
-                    if confidence > best_results[lang_code]['confidence'] and len(text) > 5:
-                        best_results[lang_code]['text'] = text
-                        best_results[lang_code]['confidence'] = confidence
-                
-            except Exception as e:
-                logger.error(f"OCR failed for {lang_info['name']} with config {config}: {str(e)}")
+                    for line in result[0]:
+                        if line[1][0] and len(line[1][0]) > 0:
+                            extracted_lines.append(line[1][0])
+                            confidence_sum += float(line[1][1])
+                            line_count += 1
+                    
+                    if line_count > 0:
+                        text = ' '.join(extracted_lines)
+                        confidence = confidence_sum / line_count
+                        
+                        if confidence > best_results[lang_code]['confidence'] and len(text) > 5:
+                            best_results[lang_code]['text'] = text
+                            best_results[lang_code]['confidence'] = confidence
+            else:
+                # Use Tesseract for Hindi and Marathi
+                for config in ocr_configs:
+                    # Add language-specific configuration
+                    full_config = f"{config} -l {tesseract_lang}"
+                    
+                    text = pytesseract.image_to_string(
+                        Image.open(image_path),
+                        config=full_config
+                    ).strip()
+                    
+                    # Calculate confidence score
+                    if text:
+                        # For non-Latin scripts, adjust confidence calculation
+                        if lang_code in ['hi', 'mr']:
+                            # Count non-space characters instead of alphanumeric
+                            confidence = len([c for c in text if not c.isspace()]) / len(text)
+                        else:
+                            confidence = len([c for c in text if c.isalnum()]) / len(text)
+                        
+                        if confidence > best_results[lang_code]['confidence'] and len(text) > 5:
+                            best_results[lang_code]['text'] = text
+                            best_results[lang_code]['confidence'] = confidence
+            
+        except Exception as e:
+            logger.error(f"OCR failed for {lang_info['name']}: {str(e)}")
     
     # Find the best result across all languages
     best_lang = max(best_results.items(), 
@@ -272,6 +406,21 @@ def capture_and_translate():
         tts = gTTS(extracted_text, lang=detected_lang)
         tts.save(AUDIO_PATHS['original'])
         
+        # Dictionary to store translations
+        translations = {
+            'english': None,
+            'hindi': None,
+            'marathi': None
+        }
+        
+        # Set original text in the appropriate language slot
+        if detected_lang == 'en':
+            translations['english'] = extracted_text
+        elif detected_lang == 'hi':
+            translations['hindi'] = extracted_text
+        elif detected_lang == 'mr':
+            translations['marathi'] = extracted_text
+        
         # Translate to other supported languages
         for target_code, target_info in SUPPORTED_LANGUAGES.items():
             if target_code != detected_lang:
@@ -280,6 +429,22 @@ def capture_and_translate():
                     tts = gTTS(translated, lang=target_code)
                     tts.save(AUDIO_PATHS[target_info['name']])
                     logger.info(f"Translation to {target_info['name']} completed")
+                    
+                    # Store translation in the dictionary
+                    translations[target_info['name']] = translated
+        
+        # Store all data in Aiven MySQL database
+        try:
+            store_in_mysql(
+                image_path,
+                extracted_text,
+                translations['english'],
+                translations['hindi'],
+                translations['marathi']
+            )
+            logger.info("Successfully stored data in Aiven MySQL database")
+        except Exception as e:
+            logger.error(f"Failed to store data in database: {str(e)}")
         
         play_audio(AUDIO_PATHS['complete'])
         return True
@@ -324,6 +489,14 @@ def main():
     global current_audio_process
     
     logger.info("Starting Smart Aid System")
+    
+    # Initialize MySQL database
+    try:
+        init_mysql_database()
+        logger.info("Database initialized successfully")
+    except Exception as e:
+        logger.error(f"Database initialization failed: {str(e)}")
+        return
     
     if not initialize_system():
         logger.error("Failed to initialize system")
