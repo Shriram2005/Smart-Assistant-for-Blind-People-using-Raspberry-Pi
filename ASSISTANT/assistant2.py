@@ -36,7 +36,7 @@ qa_dict = {
 }
 
 # Load the Vosk model
-MODEL_PATH = r'C:\Users\Shriram\Downloads\vosk-model-small-en-us-0.15'
+MODEL_PATH = "/home/saklen/Downloads/vosk-model-en-in-0.5"
 def load_model():
     global model
     if not os.path.exists(MODEL_PATH):
@@ -85,10 +85,10 @@ def get_weather(city="Nashik"):
             windspeed = data["current_weather"]["windspeed"]
             return f"The current temperature in {city} is {temp}°C with a windspeed of {windspeed} km/h."
         else:
-            return "Sorry, I couldn't fetch the weather right now."
+            return "Sorry, I couldn’t fetch the weather right now."
     except Exception as e:
         print(f"Weather fetch error: {e}")
-        return "Sorry, I couldn't fetch the weather right now."
+        return "Sorry, I couldn’t fetch the weather right now."
 
 # Wikipedia Search
 def wikipedia_search(query):
@@ -97,7 +97,7 @@ def wikipedia_search(query):
         return result
     except Exception as e:
         print(f"Error fetching Wikipedia data: {e}")
-        return "Sorry, I couldn't find anything on Wikipedia about that."
+        return "Sorry, I couldn’t find anything on Wikipedia about that."
 
 # Process Command Function
 def process_command(text, gui):
@@ -139,8 +139,8 @@ def process_command(text, gui):
                 speak(response, gui)
                 return
     else:
-        gui.update_output("I'm sorry, I didn't understand that.")
-        speak("I'm sorry, I didn't understand that.", gui)
+        gui.update_output("I’m sorry, I didn’t understand that.")
+        speak("I’m sorry, I didn’t understand that.", gui)
 
 # Speech Recognition Function
 def recognize_voice(gui):
@@ -190,8 +190,8 @@ def play_idle_video(video_path, stop_event):
 
 # GUI Class
 class RobotAssistantGUI(tk.Tk):
-    def __init__(self):
-        super().__init__()
+    def _init_(self):
+        super()._init_()
         self.title("Jarvis Assistant")
         self.configure(bg="black")
         self.attributes("-fullscreen", True)
