@@ -4,6 +4,7 @@ import re
 import threading
 import time
 import webbrowser
+import json
 from collections import defaultdict
 
 import nltk
@@ -17,6 +18,8 @@ from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
+import mysql.connector
+from mysql.connector import pooling
 
 # Download necessary NLTK data
 try:
@@ -25,6 +28,16 @@ try:
 except LookupError:
     nltk.download('punkt')
     nltk.download('stopwords')
+
+# Aiven MySQL Configuration
+MYSQL_CONFIG = {
+    'host': 'mysql-raspberry-pi-shrirammange.k.aivencloud.com',  # Aiven MySQL endpoint
+    'user': 'avnadmin',                # Default Aiven admin username
+    'password': 'AVNS_YkuryCt4s_wLBuD8xAb',       # Your Aiven password
+    'database': 'defaultdb',       # Database name
+    'port': 18836,                     # Your Aiven MySQL port
+    'ssl_ca': 'FINAL/Online Final/ca.pem',        # Path to Aiven CA certificate
+}
 
 class SmartAssistant:
     def __init__(self, name="Assistant", voice_index=0):
@@ -46,6 +59,22 @@ class SmartAssistant:
         # Knowledge base for common questions
         self.knowledge_base = self.load_knowledge_base()
         
+        # Load science knowledge data
+        self.science_knowledge = self.load_science_knowledge()
+        
+        try:
+            # Add a fixed pool_name to the connection parameters
+            connection_config = MYSQL_CONFIG.copy()
+            connection_config['pool_name'] = 'mypool'  # Add a short, fixed pool name
+            connection_config['pool_size'] = 5  # Optional: set a specific pool size
+            
+            self.connection_pool = mysql.connector.pooling.MySQLConnectionPool(**connection_config)
+            if self.debug_mode:
+                print("Database connection pool created successfully")
+        except Exception as e:
+            self.connection_pool = None
+            print(f"Error creating database connection pool: {e}")
+        
         # Query categorization
         self.categories = {
             'time': ['time', 'clock', 'hour'],
@@ -59,6 +88,26 @@ class SmartAssistant:
             'greeting': ['hello', 'hi', 'hey', 'greetings'],
             'goodbye': ['goodbye', 'bye', 'see you', 'exit', 'quit', 'stop'],
             'about': ['who are you', 'what can you do', 'your name', 'about you'],
+            'read_text': ['read the last text', 'last captured text', 'read captured text', 'what was the last text'],
+            'science': ['periodic table', 'newton', 'physics', 'chemistry', 'biology', 'astronomy', 'earth science', 
+                      'human body', 'technology', 'innovation', 'atoms', 'molecules', 'cells', 'solar system',
+                      'rock cycle', 'respiratory', 'circulatory', 'digestive', 'immune', 'nervous',
+                      'electricity', 'magnetism', 'renewable energy', 'nuclear energy', 'space exploration'],
+            'math': ['mathematics', 'math', 'pi', 'fibonacci', 'pythagoras', 'quadratic', 'calculus', 'trigonometry',
+                   'logarithm', "euler's", 'statistics', 'probability', 'square root', 'cube root', 
+                   'table of', 'multiplication table', 'square number', 'cube number', 'fraction', 
+                   'addition', 'subtraction', 'multiplication', 'division', 'modulus', 'percentage', 'average',
+                   'conversion', 'unit convert', 'meters to', 'kilometers to', 'grams to', 'kilograms to'],
+            'history': ['history', 'historical', 'ancient', 'century', 'war', 'revolution', 'empire', 
+                      'civilization', 'middle ages', 'medieval', 'renaissance', 'world war', 
+                      'civil war', 'cold war', 'prehistory', 'dynasty', 'monarchy', 'king', 'queen',
+                      'president', 'battle', 'treaty', 'crusades', 'romans', 'greeks', 'egyptians',
+                      'mesopotamia', 'ottoman', 'mongol', 'persian', 'byzantine', 'colonial', 'napoleon'],
+            'geography': ['geography', 'continent', 'ocean', 'mountain', 'river', 'desert', 'forest', 
+                        'rainforest', 'reef', 'canyon', 'valley', 'plateau', 'island', 'peninsula', 
+                        'capital city', 'country', 'state', 'city', 'population', 'map', 'atlas', 
+                        'border', 'territory', 'climate', 'landform', 'landscape', 'region', 'hemisphere',
+                        'equator', 'tropics', 'arctic', 'antarctic', 'latitude', 'longitude', 'india']
         }
         
         # Animation and sounds for feedback
@@ -103,6 +152,337 @@ class SmartAssistant:
         
         return knowledge
         
+    def load_science_knowledge(self):
+        """Load science-related knowledge from JSON file"""
+        try:
+            knowledge_file_path = os.path.join(os.path.dirname(__file__), "knowledge_data.json")
+            with open(knowledge_file_path, 'r', encoding='utf-8') as file:
+                return json.load(file)
+        except Exception as e:
+            if hasattr(self, 'debug_mode') and self.debug_mode:
+                print(f"Error loading science knowledge data: {e}")
+            return {"science": {}}
+    
+    def get_science_info(self, query):
+        """Find relevant science information from the knowledge data"""
+        if not self.science_knowledge or "science" not in self.science_knowledge:
+            return None
+        
+        science_data = self.science_knowledge["science"]
+        query_lower = query.lower()
+        
+        # First, check for exact topic matches
+        for topic, topic_data in science_data.items():
+            if topic.lower() in query_lower:
+                # If the topic is directly mentioned
+                if isinstance(topic_data, str):
+                    return topic_data
+                elif isinstance(topic_data, dict):
+                    # If it's a dictionary, check if any specific subtopic is mentioned
+                    for subtopic, info in topic_data.items():
+                        if subtopic.lower() in query_lower:
+                            if isinstance(info, str):
+                                return f"{subtopic.capitalize()}: {info}"
+                            elif isinstance(info, dict):
+                                # Check for third-level topics
+                                for detail_topic, detail_info in info.items():
+                                    if detail_topic.lower() in query_lower:
+                                        return f"{detail_topic.capitalize()}: {detail_info}"
+                                
+                                # If no specific third-level topic was mentioned, give an overview
+                                overview = f"About {subtopic}:\n"
+                                for detail_topic, detail_info in info.items():
+                                    overview += f"- {detail_topic.capitalize()}: {detail_info}\n"
+                                return overview
+                    
+                    # If no specific subtopic was mentioned, provide a general overview of the topic
+                    overview = f"About {topic}:\n\n"
+                    for subtopic, info in topic_data.items():
+                        if isinstance(info, str):
+                            overview += f"- {subtopic.capitalize()}: {info}\n"
+                        elif isinstance(info, dict):
+                            overview += f"- {subtopic.capitalize()}: {list(info.keys())}\n"
+                    return overview
+        
+        # If no direct topic match, look for keywords in the subtopics
+        for topic, topic_data in science_data.items():
+            if isinstance(topic_data, dict):
+                for subtopic, info in topic_data.items():
+                    if subtopic.lower() in query_lower:
+                        if isinstance(info, str):
+                            return f"{subtopic.capitalize()}: {info}"
+                        elif isinstance(info, dict):
+                            overview = f"About {subtopic}:\n"
+                            for detail_topic, detail_info in info.items():
+                                overview += f"- {detail_topic.capitalize()}: {detail_info}\n"
+                            return overview
+        
+        # If still no match, check for any keyword in the content
+        for topic, topic_data in science_data.items():
+            if isinstance(topic_data, dict):
+                for subtopic, info in topic_data.items():
+                    keywords = subtopic.split()
+                    for keyword in keywords:
+                        if len(keyword) > 3 and keyword.lower() in query_lower:
+                            if isinstance(info, str):
+                                return f"{subtopic.capitalize()}: {info}"
+                            break
+        
+        return None
+
+    def get_math_info(self, query):
+        """Find relevant math information from the knowledge data"""
+        if not self.science_knowledge or "math" not in self.science_knowledge:
+            return None
+        
+        math_data = self.science_knowledge["math"]
+        query_lower = query.lower()
+        
+        # Check for direct math concept mentions
+        for concept, info in math_data.items():
+            if concept.lower() in query_lower:
+                if isinstance(info, str):
+                    return info
+                elif isinstance(info, dict):
+                    # For nested structures like tables, square numbers, etc.
+                    overview = f"About {concept}:\n\n"
+                    
+                    # Look for specific sub-concepts
+                    for sub_concept, sub_info in info.items():
+                        # For specific tables, square roots, etc.
+                        if sub_concept.lower() in query_lower:
+                            return f"{sub_concept}: {sub_info}"
+                    
+                    # If no specific sub-concept was mentioned, provide a summary
+                    if len(info) <= 7:  # For smaller collections, show all items
+                        for sub_concept, sub_info in info.items():
+                            overview += f"- {sub_concept}: {sub_info}\n"
+                    else:  # For larger collections, just list the available items
+                        overview += "Available information: " + ", ".join(info.keys())
+                    
+                    return overview
+        
+        # Handle specific number-based queries
+        number_match = re.search(r'table of (\d+)', query_lower) or re.search(r'(\d+) times table', query_lower)
+        if number_match:
+            number = number_match.group(1)
+            table_key = f"table_{number}"
+            if "tables" in math_data and table_key in math_data["tables"]:
+                return f"Multiplication table of {number}: {math_data['tables'][table_key]}"
+        
+        square_match = re.search(r'square of (\d+)', query_lower)
+        if square_match:
+            number = square_match.group(1)
+            square_key = f"square_{number}"
+            if "square_numbers" in math_data and square_key in math_data["square_numbers"]:
+                value = math_data["square_numbers"][square_key]
+                return f"The square of {number} is {value}"
+            elif number.isdigit() and int(number) <= 100:
+                # Calculate on-the-fly for reasonable numbers
+                value = int(number) ** 2
+                return f"The square of {number} is {value}"
+        
+        cube_match = re.search(r'cube of (\d+)', query_lower)
+        if cube_match:
+            number = cube_match.group(1)
+            cube_key = f"cube_{number}"
+            if "cube_numbers" in math_data and cube_key in math_data["cube_numbers"]:
+                value = math_data["cube_numbers"][cube_key]
+                return f"The cube of {number} is {value}"
+            elif number.isdigit() and int(number) <= 50:
+                # Calculate on-the-fly for reasonable numbers
+                value = int(number) ** 3
+                return f"The cube of {number} is {value}"
+        
+        sqrt_match = re.search(r'square root of (\d+)', query_lower)
+        if sqrt_match:
+            number = sqrt_match.group(1)
+            sqrt_key = f"sqrt_{number}"
+            if "square_roots" in math_data and sqrt_key in math_data["square_roots"]:
+                value = math_data["square_roots"][sqrt_key]
+                return f"The square root of {number} is {value}"
+            elif number.isdigit() and int(number) <= 1000:
+                # Calculate on-the-fly for reasonable numbers
+                import math
+                value = round(math.sqrt(int(number)), 3)
+                return f"The square root of {number} is {value}"
+        
+        # Check for fraction terms
+        for fraction, info in math_data.get("fractions", {}).items():
+            if fraction in query_lower:
+                return info
+        
+        # Check for unit conversion
+        for conversion, info in math_data.get("units_conversion", {}).items():
+            conversion_terms = conversion.split('_to_')
+            if all(term in query_lower for term in conversion_terms):
+                return info
+        
+        # If no direct match was found, look for any math-related keywords
+        for concept, info in math_data.items():
+            if isinstance(info, str):
+                keywords = concept.split()
+                for keyword in keywords:
+                    if len(keyword) > 3 and keyword.lower() in query_lower:
+                        return info
+        
+        return None
+    
+    def get_history_info(self, query):
+        """Find relevant historical information from the knowledge data"""
+        if not self.science_knowledge or "history" not in self.science_knowledge:
+            return None
+        
+        history_data = self.science_knowledge["history"]
+        query_lower = query.lower()
+        
+        # Check for direct historical event/period mentions
+        for event, info in history_data.items():
+            if event.lower() in query_lower:
+                return info
+        
+        # Check history questions if available
+        if "history_questions" in self.science_knowledge:
+            history_questions = self.science_knowledge["history_questions"]
+            
+            # Find the most similar question
+            best_match = None
+            best_match_score = 0
+            
+            for question in history_questions:
+                # Simple word overlap similarity
+                question_words = set(question.lower().split())
+                query_words = set(query_lower.split())
+                common_words = question_words.intersection(query_words)
+                
+                # Calculate similarity score
+                similarity = len(common_words) / max(len(question_words), len(query_words))
+                
+                if similarity > best_match_score and similarity > 0.3:  # Threshold
+                    best_match_score = similarity
+                    best_match = question
+            
+            if best_match:
+                # If we found a similar question, try to provide an answer
+                return f"You might be asking about: {best_match}\n\nI'll search for information on this historical topic."
+        
+        # If no direct match was found, look for related topics
+        related_topics = []
+        for event, info in history_data.items():
+            # Check if any significant words from the query appear in the event or info
+            event_words = event.split()
+            for word in query_lower.split():
+                if len(word) > 3 and (word in event.lower() or word in info.lower()):
+                    related_topics.append((event, info))
+                    break
+        
+        if related_topics:
+            if len(related_topics) == 1:
+                event, info = related_topics[0]
+                return f"Related historical information about {event}:\n{info}"
+            else:
+                response = "I found several historical topics that might be related:\n\n"
+                for event, _ in related_topics[:3]:  # Limit to top 3
+                    response += f"- {event.title()}\n"
+                response += "\nYou can ask me specifically about any of these topics."
+                return response
+        
+        return None
+
+    def get_geography_info(self, query):
+        """Find relevant geographical information from the knowledge data"""
+        if not self.science_knowledge or "geography" not in self.science_knowledge:
+            return None
+        
+        geography_data = self.science_knowledge["geography"]
+        query_lower = query.lower()
+        
+        # First, check for exact topic matches
+        for topic, topic_data in geography_data.items():
+            if topic.lower() in query_lower:
+                if isinstance(topic_data, str):
+                    return topic_data
+                elif isinstance(topic_data, dict):
+                    # Handle special cases like Indian states and UTs
+                    
+                    # If specific state/UT is mentioned
+                    for entity_name, entity_data in topic_data.items():
+                        if entity_name.lower() in query_lower:
+                            if isinstance(entity_data, str):
+                                return entity_data
+                            elif isinstance(entity_data, dict):
+                                capital = entity_data.get("capital", "Unknown")
+                                description = entity_data.get("description", "")
+                                return f"{entity_name}: Capital - {capital}\n{description}"
+                    
+                    # If no specific entity is mentioned, provide an overview
+                    if "india states" in topic.lower() and "capital" in query_lower:
+                        response = "States of India and their capitals:\n\n"
+                        for state, data in topic_data.items():
+                            capital = data.get("capital", "Unknown")
+                            response += f"{state}: {capital}\n"
+                        return response
+                    elif "india union territories" in topic.lower():
+                        response = "Union Territories of India and their capitals:\n\n"
+                        for ut, data in topic_data.items():
+                            capital = data.get("capital", "Unknown")
+                            response += f"{ut}: {capital}\n"
+                        return response
+                    
+                    # Provide list of items in the category
+                    return f"I can provide information about the following in {topic}:\n" + ", ".join(topic_data.keys())
+        
+        # Check for specific entity names in Indian states and UTs
+        if "state" in query_lower or "capital" in query_lower or "india" in query_lower:
+            states_data = geography_data.get("india states and capitals", {})
+            uts_data = geography_data.get("india union territories", {})
+            
+            # Check all states for a match
+            for state, data in states_data.items():
+                if state.lower() in query_lower:
+                    capital = data.get("capital", "Unknown")
+                    description = data.get("description", "")
+                    return f"{state}: Capital - {capital}\n{description}"
+                
+                # Also check if query is asking for capital of a specific state
+                capital_match = re.search(r"capital of ([a-zA-Z ]+)", query_lower)
+                if capital_match:
+                    state_name = capital_match.group(1).strip()
+                    if state.lower() == state_name or state.lower().startswith(state_name):
+                        capital = data.get("capital", "Unknown")
+                        return f"The capital of {state} is {capital}."
+            
+            # Check all UTs for a match
+            for ut, data in uts_data.items():
+                if ut.lower() in query_lower:
+                    capital = data.get("capital", "Unknown")
+                    description = data.get("description", "")
+                    return f"{ut}: Capital - {capital}\n{description}"
+                
+                # Also check if query is asking for capital of a specific UT
+                if capital_match:
+                    ut_name = capital_match.group(1).strip()
+                    if ut.lower() == ut_name or ut.lower().startswith(ut_name):
+                        capital = data.get("capital", "Unknown")
+                        return f"The capital of {ut} is {capital}."
+        
+        # Check for general geographic features
+        for feature in ["mountain", "river", "ocean", "desert", "rainforest", "reef", "canyon"]:
+            if feature in query_lower:
+                for topic, info in geography_data.items():
+                    if feature in topic.lower() and isinstance(info, str):
+                        return info
+        
+        # If no direct match, look for keywords in geography topics
+        for topic, info in geography_data.items():
+            if isinstance(info, str):
+                topic_keywords = topic.split()
+                for keyword in topic_keywords:
+                    if len(keyword) > 3 and keyword.lower() in query_lower:
+                        return info
+        
+        return None
+
     def speak(self, text):
         """Convert text to speech"""
         print(f"{self.name}: {text}")
@@ -310,7 +690,7 @@ class SmartAssistant:
         query = query.replace("calculate", "").replace("compute", "").replace("solve", "").strip()
         
         # Replace word operators with symbols
-        query = query.replace("plus", "+").replace("minus", "-").replace("times", "").replace("multiplied by", "")
+        query = query.replace("plus", "+").replace("minus", "-").replace("times", "*").replace("multiplied by", "*")
         query = query.replace("divided by", "/").replace("over", "/")
         
         # Basic calculation using eval (with security measures)
@@ -321,7 +701,7 @@ class SmartAssistant:
                 return "I can only perform basic arithmetic calculations."
                 
             # Replace ^ with ** for exponentiation
-            query = query.replace("^", "")
+            query = query.replace("^", "**")
             
             result = eval(query)
             return f"The result of {query} is {result}."
@@ -366,6 +746,53 @@ class SmartAssistant:
                 print(f"Knowledge base error: {e}")
                 
         return None
+    
+    def get_last_captured_text(self):
+        """Retrieve the last captured text from the database"""
+        if not self.connection_pool:
+            return "I'm sorry, I can't access the database at the moment."
+        
+        try:
+            connection = self.connection_pool.get_connection()
+            cursor = connection.cursor(dictionary=True)
+            
+            # Query to get the most recent text entry
+            query = """
+                SELECT original_text, english_translation, hindi_translation, marathi_translation 
+                FROM captured_images 
+                ORDER BY timestamp DESC 
+                LIMIT 1
+            """
+            
+            cursor.execute(query)
+            result = cursor.fetchone()
+            
+            cursor.close()
+            connection.close()
+            
+            if result and result['original_text']:
+                text = result['original_text']
+                translations = []
+                
+                if result['english_translation']:
+                    translations.append(f"English translation: {result['english_translation']}")
+                if result['hindi_translation']:
+                    translations.append(f"Hindi translation: {result['hindi_translation']}")
+                if result['marathi_translation']:
+                    translations.append(f"Marathi translation: {result['marathi_translation']}")
+                
+                response = f"The last captured text was: {text}"
+                if translations:
+                    response += "\n\n" + "\n\n".join(translations)
+                
+                return response
+            else:
+                return "I couldn't find any captured text in the database."
+                
+        except Exception as e:
+            if self.debug_mode:
+                print(f"Database error: {e}")
+            return "I'm having trouble retrieving the last captured text. Please try again later."
     
     def process_query(self, query):
         """Process the user's query and generate a response"""
@@ -418,20 +845,100 @@ class SmartAssistant:
             response = self.get_news()
         elif category == "calculation":
             response = self.handle_calculation(query)
+        elif category == "read_text":
+            response = self.get_last_captured_text()
+        elif category == "science":
+            # Check science knowledge first
+            science_info = self.get_science_info(query)
+            if science_info:
+                response = science_info
+            else:
+                # Fallback to general knowledge or web search
+                kb_result = self.find_in_knowledge_base(query)
+                if kb_result:
+                    response = kb_result
+                else:
+                    response = self.search_web(query)
+        elif category == "math":
+            # Check math knowledge first
+            math_info = self.get_math_info(query)
+            if math_info:
+                response = math_info
+            else:
+                # Fallback to calculation or web search
+                response = self.handle_calculation(query) or self.search_web(query)
+        elif category == "history":
+            # Check history knowledge first
+            history_info = self.get_history_info(query)
+            if history_info:
+                response = history_info
+            else:
+                # Fallback to general knowledge or web search
+                kb_result = self.find_in_knowledge_base(query)
+                if kb_result:
+                    response = kb_result
+                else:
+                    response = self.search_web(query)
+        elif category == "geography":
+            # Check geography knowledge first
+            geography_info = self.get_geography_info(query)
+            if geography_info:
+                response = geography_info
+            else:
+                # Fallback to general knowledge or web search
+                kb_result = self.find_in_knowledge_base(query)
+                if kb_result:
+                    response = kb_result
+                else:
+                    response = self.search_web(query)
         elif category == "web_search":
             # Check knowledge base first
             kb_result = self.find_in_knowledge_base(query)
             if kb_result:
                 response = kb_result
             else:
-                response = self.search_web(query)
+                # Check specialized knowledge before web search
+                science_info = self.get_science_info(query)
+                if science_info:
+                    response = science_info
+                else:
+                    math_info = self.get_math_info(query)
+                    if math_info:
+                        response = math_info
+                    else:
+                        history_info = self.get_history_info(query)
+                        if history_info:
+                            response = history_info
+                        else:
+                            geography_info = self.get_geography_info(query)
+                            if geography_info:
+                                response = geography_info
+                            else:
+                                response = self.search_web(query)
         else:
-            # General knowledge - check knowledge base
+            # General knowledge - check knowledge base first
             kb_result = self.find_in_knowledge_base(query)
             if kb_result:
                 response = kb_result
             else:
-                response = self.search_web(query)
+                # Check specialized knowledge before web search
+                science_info = self.get_science_info(query)
+                if science_info:
+                    response = science_info
+                else:
+                    math_info = self.get_math_info(query)
+                    if math_info:
+                        response = math_info
+                    else:
+                        history_info = self.get_history_info(query)
+                        if history_info:
+                            response = history_info
+                        else:
+                            geography_info = self.get_geography_info(query)
+                            if geography_info:
+                                response = geography_info
+                            else:
+                                response = self.search_web(query)
                 
         # Save to cache
         self.query_cache[query] = response
@@ -467,7 +974,7 @@ if __name__ == "__main__":
     print("Starting Smart Assistant...")
     
     # You can customize the assistant's name and voice
-    assistant = SmartAssistant(name="Einstein", voice_index=0)
+    assistant = SmartAssistant(name="Alex", voice_index=0)
     
     # Run the assistant
     assistant.run()
