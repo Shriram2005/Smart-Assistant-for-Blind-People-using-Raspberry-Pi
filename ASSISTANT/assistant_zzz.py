@@ -20,7 +20,6 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 import mysql.connector
 from mysql.connector import pooling
-import wikipedia
 
 # Download necessary NLTK data
 try:
@@ -44,18 +43,28 @@ class SmartAssistant:
     def __init__(self, name="Assistant", voice_index=0):
         self.name = name
         self.recognizer = sr.Recognizer()
-        self.microphone = sr.Microphone()
-        
+        try:
+            self.microphone = sr.Microphone()
+            # Initialize speech recognition settings
+            with self.microphone as source:
+                self.recognizer.adjust_for_ambient_noise(source, duration=1)
+        except Exception as e:
+            print(f"Error initializing microphone: {e}")
+            self.microphone = None
+            
         # Initialize text-to-speech engine
-        self.engine = pyttsx3.init()
-        voices = self.engine.getProperty('voices')
-        if voices and len(voices) > voice_index:
-            self.engine.setProperty('voice', voices[voice_index].id)
-        self.engine.setProperty('rate', 175)  # Speed of speech
-        
-        # Initialize speech recognition settings
-        with self.microphone as source:
-            self.recognizer.adjust_for_ambient_noise(source, duration=1)
+        try:
+            self.engine = pyttsx3.init()
+            voices = self.engine.getProperty('voices')
+            if voices and len(voices) > voice_index:
+                self.engine.setProperty('voice', voices[voice_index].id)
+            self.engine.setProperty('rate', 175)  # Speed of speech
+        except Exception as e:
+            print(f"Error initializing speech engine: {e}")
+            self.engine = None
+            
+        # Debug mode flag
+        self.debug_mode = True
             
         # Knowledge base for common questions
         self.knowledge_base = self.load_knowledge_base()
@@ -63,18 +72,20 @@ class SmartAssistant:
         # Load science knowledge data
         self.science_knowledge = self.load_science_knowledge()
         
-        # Debug mode setting
-        self.debug_mode = False
-        
         try:
-            # Add a fixed pool_name to the connection parameters
+            # Create a connection pool with explicit configuration
             connection_config = MYSQL_CONFIG.copy()
-            connection_config['pool_name'] = 'mypool'  # Add a short, fixed pool name
-            connection_config['pool_size'] = 5  # Optional: set a specific pool size
+            connection_config['pool_name'] = 'mypool'
+            connection_config['pool_size'] = 5
+            connection_config['connect_timeout'] = 10
             
+            # Check if SSL certificate exists before using it
+            if 'ssl_ca' in connection_config and not os.path.exists(connection_config['ssl_ca']):
+                print(f"SSL CA file not found: {connection_config['ssl_ca']}")
+                del connection_config['ssl_ca']
+                
             self.connection_pool = mysql.connector.pooling.MySQLConnectionPool(**connection_config)
-            if self.debug_mode:
-                print("Database connection pool created successfully")
+            print("Database connection pool created successfully")
         except Exception as e:
             self.connection_pool = None
             print(f"Error creating database connection pool: {e}")
@@ -92,7 +103,7 @@ class SmartAssistant:
             'greeting': ['hello', 'hi', 'hey', 'greetings'],
             'goodbye': ['goodbye', 'bye', 'see you', 'exit', 'quit', 'stop'],
             'about': ['who are you', 'what can you do', 'your name', 'about you'],
-            'read_text': ['read the last text', 'last captured text', 'read captured text', 'what was the last text', 'read the last text', 'repeat the last text'],
+            'read_text': ['read the last text', 'last captured text', 'read captured text', 'what was the last text'],
             'science': ['periodic table', 'newton', 'physics', 'chemistry', 'biology', 'astronomy', 'earth science', 
                       'human body', 'technology', 'innovation', 'atoms', 'molecules', 'cells', 'solar system',
                       'rock cycle', 'respiratory', 'circulatory', 'digestive', 'immune', 'nervous',
@@ -114,16 +125,19 @@ class SmartAssistant:
                         'equator', 'tropics', 'arctic', 'antarctic', 'latitude', 'longitude', 'india']
         }
         
-        # Animation and sounds for feedback
-        pygame.mixer.init()
-        self.listening_sound = None
+        # Initialize pygame for sound effects
         try:
-            self.listening_sound = pygame.mixer.Sound('sounds/listening.wav')
-        except:
-            print("Listening sound file not found")
+            pygame.mixer.init()
+            self.listening_sound = None
+            try:
+                self.listening_sound = pygame.mixer.Sound('sounds/listening.wav')
+            except Exception as e:
+                print(f"Listening sound file not found: {e}")
+        except Exception as e:
+            print(f"Error initializing pygame mixer: {e}")
+            self.listening_sound = None
             
         self.is_active = True
-        self.debug_mode = False
         
         # Cache for recent queries
         self.query_cache = {}
@@ -154,18 +168,67 @@ class SmartAssistant:
         knowledge["When did World War 2 end"] = "World War II ended on September 2, 1945, with the formal surrender of Japan aboard the U.S. battleship USS Missouri."
         knowledge["Who was the first person on the moon"] = "Neil Armstrong was the first person to walk on the Moon on July 21, 1969, during the Apollo 11 mission."
         
+        # Add more facts here
+        knowledge["Who is the prime minister of India"] = "Currently, Narendra Modi is the Prime Minister of India. He was first elected in 2014 and won re-election in 2019."
+        knowledge["What is the capital of France"] = "Paris is the capital city of France."
+        knowledge["What is the speed of light"] = "The speed of light in a vacuum is 299,792,458 meters per second, or about 186,282 miles per second."
+        knowledge["Who invented the telephone"] = "Alexander Graham Bell is credited with inventing the first practical telephone in 1876."
+        knowledge["What is the tallest building in the world"] = "The Burj Khalifa in Dubai, United Arab Emirates is currently the tallest building in the world, standing at 828 meters (2,717 feet)."
+        
         return knowledge
         
     def load_science_knowledge(self):
         """Load science-related knowledge from JSON file"""
         try:
-            knowledge_file_path = os.path.join(os.path.dirname(__file__), "knowledge_data.json")
+            # First try to find the knowledge file in the same directory as the script
+            knowledge_file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "knowledge_data.json")
+            
+            # If file doesn't exist, try other common locations
+            if not os.path.exists(knowledge_file_path):
+                # Try current working directory
+                knowledge_file_path = "knowledge_data.json"
+                
+                # If still not found, use default knowledge
+                if not os.path.exists(knowledge_file_path):
+                    print("Knowledge data file not found. Using default knowledge.")
+                    return self.create_default_science_knowledge()
+            
             with open(knowledge_file_path, 'r', encoding='utf-8') as file:
                 return json.load(file)
         except Exception as e:
-            if hasattr(self, 'debug_mode') and self.debug_mode:
-                print(f"Error loading science knowledge data: {e}")
-            return {"science": {}}
+            print(f"Error loading science knowledge data: {e}")
+            return self.create_default_science_knowledge()
+    
+    def create_default_science_knowledge(self):
+        """Create default science knowledge if file can't be loaded"""
+        return {
+            "science": {
+                "physics": {
+                    "newton's laws": "1. An object at rest stays at rest, and an object in motion stays in motion unless acted upon by a force. 2. Force equals mass times acceleration (F=ma). 3. For every action, there is an equal and opposite reaction.",
+                    "gravity": "Gravity is a force that attracts objects with mass toward each other. On Earth, gravity gives weight to objects and causes them to fall when dropped."
+                },
+                "chemistry": {
+                    "periodic table": "The periodic table is a tabular arrangement of chemical elements organized by atomic number, electron configuration, and chemical properties.",
+                    "atoms": "Atoms are the basic units of matter consisting of a nucleus (containing protons and neutrons) surrounded by electrons."
+                },
+                "biology": {
+                    "photosynthesis": "Photosynthesis is the process by which plants and some other organisms convert light energy into chemical energy that can be used to fuel the organism's activities.",
+                    "cells": "Cells are the basic structural and functional units of all living organisms. They are often called the 'building blocks of life'."
+                }
+            },
+            "math": {
+                "pi": "Pi (π) is the ratio of a circle's circumference to its diameter, approximately equal to 3.14159.",
+                "pythagoras theorem": "In a right-angled triangle, the square of the length of the hypotenuse equals the sum of the squares of the lengths of the other two sides (a² + b² = c²)."
+            },
+            "history": {
+                "world war 2": "World War II was a global war that lasted from 1939 to 1945, involving many of the world's nations organized into two opposing military alliances: the Allies and the Axis.",
+                "ancient egypt": "Ancient Egypt was a civilization in Northeastern Africa that flourished along the Nile River from about 3100 BCE to 30 BCE, known for its pyramids, pharaohs, and cultural achievements."
+            },
+            "geography": {
+                "continents": "Earth has seven continents: Africa, Antarctica, Asia, Australia, Europe, North America, and South America.",
+                "oceans": "Earth has five oceans: Pacific, Atlantic, Indian, Southern, and Arctic."
+            }
+        }
     
     def get_science_info(self, query):
         """Find relevant science information from the knowledge data"""
@@ -273,6 +336,11 @@ class SmartAssistant:
             table_key = f"table_{number}"
             if "tables" in math_data and table_key in math_data["tables"]:
                 return f"Multiplication table of {number}: {math_data['tables'][table_key]}"
+            else:
+                # Generate multiplication table on-the-fly
+                number = int(number)
+                table = "\n".join([f"{number} × {i} = {number * i}" for i in range(1, 11)])
+                return f"Multiplication table of {number}:\n{table}"
         
         square_match = re.search(r'square of (\d+)', query_lower)
         if square_match:
@@ -318,9 +386,53 @@ class SmartAssistant:
         
         # Check for unit conversion
         for conversion, info in math_data.get("units_conversion", {}).items():
-            conversion_terms = conversion.split('_to_')
+            conversion_terms = conversion.split('to')
             if all(term in query_lower for term in conversion_terms):
                 return info
+            
+        # Handle simple unit conversions on-the-fly
+        conversion_match = re.search(r'(\d+(?:\.\d+)?)\s*(kilometers?|km|meters?|m|grams?|g|kilograms?|kg)\s*(?:to|in)\s*(kilometers?|km|meters?|m|grams?|g|kilograms?|kg)', query_lower)
+        if conversion_match:
+            try:
+                value = float(conversion_match.group(1))
+                from_unit = conversion_match.group(2).lower()
+                to_unit = conversion_match.group(3).lower()
+                
+                # Standardize units
+                if from_unit in ['kilometer', 'kilometers', 'km']:
+                    from_unit = 'km'
+                elif from_unit in ['meter', 'meters', 'm']:
+                    from_unit = 'm'
+                elif from_unit in ['gram', 'grams', 'g']:
+                    from_unit = 'g'
+                elif from_unit in ['kilogram', 'kilograms', 'kg']:
+                    from_unit = 'kg'
+                    
+                if to_unit in ['kilometer', 'kilometers', 'km']:
+                    to_unit = 'km'
+                elif to_unit in ['meter', 'meters', 'm']:
+                    to_unit = 'm'
+                elif to_unit in ['gram', 'grams', 'g']:
+                    to_unit = 'g'
+                elif to_unit in ['kilogram', 'kilograms', 'kg']:
+                    to_unit = 'kg'
+                
+                # Perform conversion
+                if from_unit == 'km' and to_unit == 'm':
+                    result = value * 1000
+                    return f"{value} kilometers is equal to {result} meters."
+                elif from_unit == 'm' and to_unit == 'km':
+                    result = value / 1000
+                    return f"{value} meters is equal to {result} kilometers."
+                elif from_unit == 'kg' and to_unit == 'g':
+                    result = value * 1000
+                    return f"{value} kilograms is equal to {result} grams."
+                elif from_unit == 'g' and to_unit == 'kg':
+                    result = value / 1000
+                    return f"{value} grams is equal to {result} kilograms."
+            except Exception as e:
+                if self.debug_mode:
+                    print(f"Error in unit conversion: {e}")
         
         # If no direct match was found, look for any math-related keywords
         for concept, info in math_data.items():
@@ -477,484 +589,398 @@ class SmartAssistant:
                     if feature in topic.lower() and isinstance(info, str):
                         return info
         
-        # If no direct match, look for keywords in geography topics
+        # Check for specific countries or capitals
+        country_match = re.search(r"capital of ([a-zA-Z ]+)", query_lower)
+        if country_match:
+            country_name = country_match.group(1).strip()
+            # Hardcoded common country-capital pairs
+            capitals = {
+                "india": "New Delhi",
+                "usa": "Washington, D.C.",
+                "united states": "Washington, D.C.",
+                "uk": "London",
+                "united kingdom": "London",
+                "japan": "Tokyo",
+                "china": "Beijing",
+                "france": "Paris",
+                "germany": "Berlin",
+                "russia": "Moscow",
+                "brazil": "Brasília",
+                "australia": "Canberra",
+                "canada": "Ottawa",
+                "italy": "Rome",
+                "spain": "Madrid",
+                "mexico": "Mexico City",
+                "south korea": "Seoul",
+                "indonesia": "Jakarta"
+            }
+            
+            for country, capital in capitals.items():
+                if country == country_name or country in country_name:
+                    return f"The capital of {country.title()} is {capital}."
+        
+        # If no direct match was found, check for keywords in any geography topic
         for topic, info in geography_data.items():
             if isinstance(info, str):
-                topic_keywords = topic.split()
-                for keyword in topic_keywords:
+                keywords = topic.split()
+                for keyword in keywords:
                     if len(keyword) > 3 and keyword.lower() in query_lower:
                         return info
         
         return None
-
-    def speak(self, text):
-        """Convert text to speech"""
-        print(f"{self.name}: {text}")
-        self.engine.say(text)
-        self.engine.runAndWait()
     
     def listen(self):
-        """Listen for voice input and convert to text"""
+        """Listen for user input and convert speech to text"""
+        if not self.microphone:
+            print("Microphone not available. Please enter text input:")
+            return input("> ")
+            
+        # Play listening sound if available
         if self.listening_sound:
             self.listening_sound.play()
             
-        print(f"{self.name} is listening...")
-        
-        with self.microphone as source:
-            try:
-                # Adjust for ambient noise before each listening session
+        text = ""
+        try:
+            with self.microphone as source:
+                print("Listening...")
                 self.recognizer.adjust_for_ambient_noise(source, duration=0.5)
+                audio = self.recognizer.listen(source, timeout=5)
                 
-                # Set a dynamic energy threshold - helps with different voice volumes
-                self.recognizer.energy_threshold = 300  # Default is 300, increase for noisy environments
-                self.recognizer.dynamic_energy_threshold = True
-                
-                # Increase timeout and phrase_time_limit to give users more time to speak
-                # timeout: how long to wait for speech to start
-                # phrase_time_limit: maximum length of a phrase
-                audio = self.recognizer.listen(source, timeout=10, phrase_time_limit=10)
-                
-                if self.listening_sound:
-                    pygame.mixer.stop()
-                
-                try:
-                    # Use a more comprehensive recognition with language specification
-                    text = self.recognizer.recognize_google(audio, language='en-IN')
-                    print(f"You said: {text}")
-                    return text.lower()
-                except sr.UnknownValueError:
-                    if self.debug_mode:
-                        print("Could not understand audio")
-                    return ""
-                except sr.RequestError as e:
-                    if self.debug_mode:
-                        print(f"Error with Google Speech Recognition service: {e}")
-                    # Fallback to offline recognition if available
-                    try:
-                        text = self.recognizer.recognize_sphinx(audio)
-                        print(f"You said (offline): {text}")
-                        return text.lower()
-                    except:
-                        if self.debug_mode:
-                            print("Offline recognition also failed")
-                        return ""
-                    
-            except sr.WaitTimeoutError:
-                if self.debug_mode:
-                    print("Listening timed out")
-                if self.listening_sound:
-                    pygame.mixer.stop()
-                return ""
-    
-    def categorize_query(self, query):
-        """Determine the category of a user query"""
-        if not query:
-            return None
+            print("Recognizing...")
+            text = self.recognizer.recognize_google(audio)
+            print(f"You said: {text}")
             
-        # Check each category for matching keywords
+        except sr.WaitTimeoutError:
+            self.speak("I didn't hear anything. Please try again.")
+        except sr.UnknownValueError:
+            self.speak("Sorry, I didn't understand that.")
+        except sr.RequestError as e:
+            self.speak("Could not request results; check your network connection.")
+            if self.debug_mode:
+                print(f"Recognition error: {e}")
+        except Exception as e:
+            if self.debug_mode:
+                print(f"Error in listen method: {e}")
+            self.speak("Something went wrong while listening. Please try again.")
+            
+        return text
+    
+    def speak(self, text):
+        """Convert text to speech"""
+        print(f"{self.name}: {text}")
+        
+        if self.engine:
+            try:
+                self.engine.say(text)
+                self.engine.runAndWait()
+            except Exception as e:
+                if self.debug_mode:
+                    print(f"Speech engine error: {e}")
+                print("Error speaking. Falling back to text only.")
+                
+    def categorize_query(self, query):
+        """Categorize the query into one of the predefined categories"""
+        query_lower = query.lower()
+        
+        # Check for cached response
+        if query_lower in self.query_cache:
+            return "cached", self.query_cache[query_lower]
+            
         for category, keywords in self.categories.items():
             for keyword in keywords:
-                if keyword in query:
-                    return category
+                if keyword in query_lower:
+                    return category, None
                     
-        # Default to web search if no category matches
-        return "web_search"
-        
-    def get_current_time(self):
-        """Get the current time"""
-        current_time = datetime.datetime.now().strftime("%I:%M %p")
-        return f"The current time is {current_time}."
-        
-    def get_current_date(self):
-        """Get the current date"""
-        current_date = datetime.datetime.now().strftime("%A, %B %d, %Y")
-        return f"Today is {current_date}."
-        
-    def get_weather(self, location=""):
-        """Get weather information for a location"""
-        if not location:
-            location = "current location"
+        # Check for calculation expressions
+        if re.search(r'[0-9+\-*/()^]', query_lower):
+            return "calculation", None
             
+        # Default to general category
+        return "general", None
+        
+    def search_wikipedia(self, query):
+        """Search for information on Wikipedia"""
         try:
-            # Web scraping approach for weather (no API key required)
-            url = f"https://www.google.com/search?q=weather+in+{location.replace(' ', '+')}"
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.110 Safari/537.36'
-            }
+            import wikipedia
+            # Remove common question phrases
+            clean_query = query.lower()
+            for phrase in ['what is', 'who is', 'tell me about', 'define']:
+                clean_query = clean_query.replace(phrase, '')
             
-            response = requests.get(url, headers=headers)
-            soup = BeautifulSoup(response.text, 'html.parser')
-            
-            # Extract temperature (this selector might need updates based on Google's layout changes)
-            temp_div = soup.find('div', {'class': 'BNeawe iBp4i AP7Wnd'})
-            if temp_div:
-                temperature = temp_div.text
-                return f"The temperature in {location} is currently {temperature}."
-            else:
-                return f"I couldn't find the weather for {location}. Please try another location."
-                
+            # Get a summary from Wikipedia
+            summary = wikipedia.summary(clean_query.strip(), sentences=3)
+            return summary
         except Exception as e:
             if self.debug_mode:
-                print(f"Weather error: {e}")
-            return f"I'm having trouble getting weather information right now. Please try again later."
-            
-    def get_wikipedia_info(self, query):
-        """Get information from Wikipedia"""
-        try:
-            # Clean up the query
-            search_query = query
-            for prefix in ["who is", "what is", "tell me about", "wikipedia", "define"]:
-                search_query = search_query.replace(prefix, "").strip()
-            
-            # First try direct Wikipedia API
-            try:
-                # Search for Wikipedia pages
-                search_results = wikipedia.search(search_query, results=3)
-                
-                if search_results:
-                    # Get the page for the first result
-                    page = wikipedia.page(search_results[0], auto_suggest=False)
-                    
-                    # Get a summary (first 3 sentences)
-                    summary = wikipedia.summary(search_results[0], sentences=3, auto_suggest=False)
-                    
-                    return summary
-                else:
-                    return None
-            except wikipedia.exceptions.DisambiguationError as e:
-                # If there's a disambiguation, get the first option
-                try:
-                    page = wikipedia.page(e.options[0], auto_suggest=False)
-                    summary = wikipedia.summary(e.options[0], sentences=3, auto_suggest=False)
-                    return summary
-                except:
-                    pass
-            except wikipedia.exceptions.PageError:
-                # Page not found, continue to web scraping method
-                pass
-            except Exception as wiki_api_error:
-                if self.debug_mode:
-                    print(f"Wikipedia API error: {wiki_api_error}")
-            
-            # Fallback to web scraping method
-            url = f"https://en.wikipedia.org/wiki/{search_query.replace(' ', '_')}"
-            response = requests.get(url)
-            
-            if response.status_code == 200:
-                soup = BeautifulSoup(response.text, 'html.parser')
-                
-                # Get the first paragraph of content
-                paragraphs = soup.select("div.mw-parser-output > p")
-                for p in paragraphs:
-                    if p.text.strip():
-                        # Return the first non-empty paragraph
-                        return p.text.strip()
-            
-            return None
-            
-        except Exception as e:
-            if self.debug_mode:
-                print(f"Wikipedia error: {e}")
-            return None
+                print(f"Wikipedia search error: {e}")
+            return f"I couldn't find reliable information about {query}."
     
     def get_news(self):
-        """Get latest news headlines"""
+        """Get the latest news headlines"""
         try:
-            # Web scraping approach for news (no API key required)
-            url = "https://news.google.com/"
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.110 Safari/537.36'
-            }
+            # BBC News RSS feed
+            url = "http://feeds.bbci.co.uk/news/world/rss.xml"
+            response = requests.get(url, timeout=5)
+            soup = BeautifulSoup(response.content, 'xml')
+            items = soup.find_all('item', limit=5)
             
-            response = requests.get(url, headers=headers)
-            soup = BeautifulSoup(response.text, 'html.parser')
-            
-            # Find news articles
-            articles = soup.find_all('a', {'class': 'VDXfz'})
-            
-            if articles:
-                headlines = []
-                for i, article in enumerate(articles[:5]):  # Get top 5 headlines
-                    headlines.append(f"{i+1}. {article.text.strip()}")
-                    
-                headlines_text = "\n".join(headlines)
-                return f"Here are the latest headlines:\n{headlines_text}"
-            else:
-                return "I couldn't retrieve the latest news headlines. Please try again later."
+            if not items:
+                return "I couldn't retrieve the latest news."
                 
-        except Exception as e:
-            if self.debug_mode:
-                print(f"News error: {e}")
-            return "I'm having trouble getting the news right now. Please try again later."
-    
-    def search_web(self, query):
-        """Search the web for information"""
-        try:
-            # Use web scraping to get search results
-            search_query = query.replace("search for", "").replace("google", "").replace("find", "").replace("look up", "").strip()
-            
-            # First try Wikipedia
-            try:
-                wiki_result = self.get_wikipedia_info(search_query)
-                if wiki_result and "I couldn't find information" not in wiki_result:
-                    return wiki_result
-            except Exception as wiki_error:
-                if self.debug_mode:
-                    print(f"Wikipedia search error: {wiki_error}")
-            
-            # Then try Google search
-            url = f"https://www.google.com/search?q={search_query.replace(' ', '+')}"
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.110 Safari/537.36'
-            }
-            
-            response = requests.get(url, headers=headers)
-            soup = BeautifulSoup(response.text, 'html.parser')
-            
-            # Try to find a featured snippet or direct answer
-            answer_div = soup.find('div', {'class': 'Z0LcW'}) or soup.find('div', {'class': 'IZ6rdc'})
-            if answer_div:
-                return answer_div.text
+            news_text = "Here are the latest headlines:\n\n"
+            for item in items:
+                title = item.title.text
+                news_text += f"- {title}\n"
                 
-            # Look for search result snippets
-            results = soup.find_all('div', {'class': 'BNeawe s3v9rd AP7Wnd'})
-            if results:
-                return results[0].text
-            
-            # If web search fails, return None to indicate no results found
-            return None
+            return news_text
             
         except Exception as e:
             if self.debug_mode:
-                print(f"Web search error: {e}")
-            return None
+                print(f"News retrieval error: {e}")
+            return "I couldn't retrieve the latest news. Please check your internet connection."
     
-    def handle_calculation(self, query):
-        """Handle mathematical calculations"""
-        # Extract the calculation part from the query
-        query = query.replace("calculate", "").replace("compute", "").replace("solve", "").strip()
-        
-        # Replace word operators with symbols
-        query = query.replace("plus", "+").replace("minus", "-").replace("times", "*").replace("multiplied by", "*")
-        query = query.replace("divided by", "/").replace("over", "/")
-        
-        # Basic calculation using eval (with security measures)
+    def get_weather(self, location="local"):
+        """Get weather information"""
+        # For a real implementation, you might use a weather API like OpenWeatherMap
+        return "I'm sorry, but I don't have real-time weather data access. You would need to integrate a weather API to get current weather information."
+    
+    def calculate(self, expression):
+        """Evaluate a mathematical expression"""
         try:
-            # Only allow basic arithmetic operations
-            allowed_chars = set("0123456789+-*/().^ ")
-            if not all(c in allowed_chars for c in query):
-                return "I can only perform basic arithmetic calculations."
+            # Remove words like 'calculate', 'compute', etc.
+            for word in ['calculate', 'compute', 'what is']:
+                expression = expression.replace(word, '')
                 
-            # Replace ^ with ** for exponentiation
-            query = query.replace("^", "**")
+            # Replace words with symbols
+            expression = expression.replace('plus', '+')
+            expression = expression.replace('minus', '-')
+            expression = expression.replace('times', '*')
+            expression = expression.replace('multiplied by', '*')
+            expression = expression.replace('divided by', '/')
             
-            result = eval(query)
-            return f"The result of {query} is {result}."
+            # Clean the expression
+            expression = re.sub(r'[^0-9+\-*/().\s]', '', expression).strip()
             
+            # Evaluate the expression
+            result = eval(expression)
+            return f"The result of {expression} is {result}"
         except Exception as e:
             if self.debug_mode:
                 print(f"Calculation error: {e}")
-            return "I couldn't perform that calculation. Please try a simpler arithmetic expression."
-            
-    def find_in_knowledge_base(self, query):
-        """Find the most relevant answer in the knowledge base"""
-        if not query or not self.knowledge_base:
-            return None
-            
-        # Prepare vectorizer for text similarity
-        vectorizer = TfidfVectorizer(stop_words=stopwords.words('english'))
-        
-        # Convert knowledge base to list format for vectorization
-        keys = list(self.knowledge_base.keys())
-        
+            return "I couldn't calculate that. Please check the expression and try again."
+    
+    def web_search(self, query):
+        """Perform a web search"""
+        # This is a placeholder. In a real implementation, you might use a search API.
+        search_url = f"https://www.google.com/search?q={query.replace(' ', '+')}"
         try:
-            # Vectorize the knowledge base questions
-            knowledge_vectors = vectorizer.fit_transform(keys)
-            
-            # Vectorize the query
-            query_vector = vectorizer.transform([query])
-            
-            # Calculate similarity scores
-            similarities = cosine_similarity(query_vector, knowledge_vectors)[0]
-            
-            # Find the most similar question
-            best_match_index = np.argmax(similarities)
-            best_match_score = similarities[best_match_index]
-            
-            # Only return if similarity is above threshold
-            if best_match_score > 0.3:
-                best_match_question = keys[best_match_index]
-                return self.knowledge_base[best_match_question]
-                
+            webbrowser.open(search_url)
+            return f"I've opened a web search for '{query}'."
         except Exception as e:
             if self.debug_mode:
-                print(f"Knowledge base error: {e}")
-                
-        return None
+                print(f"Web search error: {e}")
+            return "I couldn't open the web browser. Please try again later."
     
-    # get last captured text from the aiven database
-    def get_last_captured_text(self):
-        """Retrieve the last captured text from the database"""
+    def log_query(self, query, response, category):
+        """Log the query to the database"""
         if not self.connection_pool:
-            return "I'm sorry, I can't access the database at the moment."
-        
+            if self.debug_mode:
+                print("Database connection pool not available. Skipping logging.")
+            return
+            
         try:
             connection = self.connection_pool.get_connection()
-            cursor = connection.cursor(dictionary=True)
+            cursor = connection.cursor()
             
-            # Query to get the most recent text entry
-            query = """
-                SELECT original_text, english_translation, hindi_translation, marathi_translation 
-                FROM captured_images 
-                ORDER BY timestamp DESC 
-                LIMIT 1
-            """
+            # Create table if not exists
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS query_logs (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    query TEXT NOT NULL,
+                    response TEXT,
+                    category VARCHAR(50),
+                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
             
-            cursor.execute(query)
-            result = cursor.fetchone()
+            # Insert the query log
+            insert_query = "INSERT INTO query_logs (query, response, category) VALUES (%s, %s, %s)"
+            cursor.execute(insert_query, (query, response[:1000] if response else None, category))
             
+            connection.commit()
             cursor.close()
             connection.close()
             
-            if result and result['original_text']:
-                text = result['original_text']
-                # Return only the original text without translations
-                return f"The last captured text is: {text}"
-            else:
-                return "I couldn't find any captured text in the database."
-                
         except Exception as e:
             if self.debug_mode:
-                print(f"Database error: {e}")
-            return "I'm having trouble retrieving the last captured text. Please try again later."
+                print(f"Database logging error: {e}")
+    
+    def add_to_memory(self, query, response):
+        """Add query and response to conversation memory"""
+        self.conversation_memory.append((query, response))
+        if len(self.conversation_memory) > self.memory_limit:
+            self.conversation_memory.pop(0)  # Remove oldest entry
+    
+    def get_response_from_memory(self, query):
+        """Check if we have a similar query in memory"""
+        query_tokens = set(word_tokenize(query.lower()))
+        stop_words = set(stopwords.words('english'))
+        query_tokens = [word for word in query_tokens if word not in stop_words]
+        
+        best_match = None
+        best_score = 0
+        
+        for past_query, past_response in self.conversation_memory:
+            past_tokens = set(word_tokenize(past_query.lower()))
+            past_tokens = [word for word in past_tokens if word not in stop_words]
+            
+            # Calculate similarity
+            common_words = set(query_tokens).intersection(set(past_tokens))
+            score = len(common_words) / max(len(query_tokens), len(past_tokens)) if max(len(query_tokens), len(past_tokens)) > 0 else 0
+            
+            if score > best_score and score > 0.7:  # Threshold for similarity
+                best_score = score
+                best_match = past_response
+                
+        return best_match
     
     def process_query(self, query):
         """Process the user's query and generate a response"""
         if not query:
-            return "I didn't catch that. Could you please repeat?"
+            return "I didn't catch that. Can you please repeat?"
             
-        # Check if query is in cache
-        if query in self.query_cache:
-            return self.query_cache[query]
+        # Check conversation memory first
+        memory_response = self.get_response_from_memory(query)
+        if memory_response:
+            return memory_response
             
-        # Add to conversation memory
-        self.conversation_memory.append(("user", query))
-        if len(self.conversation_memory) > self.memory_limit:
-            self.conversation_memory.pop(0)
-            
-        # Check for assistant name in query to activate
-        assistant_names = [self.name.lower(), "assistant"]
-        is_addressed = any(name in query.lower() for name in assistant_names)
+        # Categorize the query
+        category, cached_response = self.categorize_query(query)
         
-        # Check if it's a goodbye intent
-        if any(word in query.lower() for word in self.categories['goodbye']):
-            self.is_active = False
-            return "Goodbye! Have a great day."
+        # Check if we have a cached response
+        if cached_response:
+            return cached_response
             
-        # Basic greeting
-        if any(word in query.lower() for word in self.categories['greeting']):
-            return f"Hello! How can I help you today?"
-            
-        # About the assistant
-        if any(phrase in query.lower() for phrase in self.categories['about']):
-            return f"I'm {self.name}, a smart assistant designed to help answer your questions about a wide variety of topics. I can tell you the time, date, weather, news, and information from Wikipedia, among other things. Just ask me a question!"
-            
-        # Determine query category
-        category = self.categorize_query(query)
-        
         # Process based on category
         response = ""
+        
         if category == "time":
-            response = self.get_current_time()
+            current_time = datetime.datetime.now().strftime("%I:%M %p")
+            response = f"The current time is {current_time}."
+            
         elif category == "date":
-            response = self.get_current_date()
+            current_date = datetime.datetime.now().strftime("%A, %B %d, %Y")
+            response = f"Today is {current_date}."
+            
         elif category == "weather":
-            # Extract location if provided
-            location_match = re.search(r'weather in ([a-zA-Z ]+)', query)
-            location = location_match.group(1) if location_match else ""
-            response = self.get_weather(location)
+            response = self.get_weather()
+            
+        elif category == "wikipedia":
+            response = self.search_wikipedia(query)
+            
         elif category == "news":
             response = self.get_news()
+            
         elif category == "calculation":
-            response = self.handle_calculation(query)
-        elif category == "read_text":
-            response = self.get_last_captured_text()
-        else:
-            # For all other categories, follow this search order:
-            # 1. Try online search first
-            # 2. If online search fails, try knowledge_data.json
-            # 3. If both fail, provide a fallback message
+            response = self.calculate(query)
             
-            # First try online search
-            online_result = self.search_web(query)
+        elif category == "web_search":
+            response = self.web_search(query)
             
-            if online_result:
-                response = online_result
+        elif category == "greeting":
+            response = f"Hello! I'm {self.name}, your smart assistant. How can I help you today?"
+            
+        elif category == "goodbye":
+            response = "Goodbye! Have a great day!"
+            self.is_active = False
+            
+        elif category == "about":
+            response = f"I'm {self.name}, a smart voice assistant. I can help you with time, date, weather, news, calculations, web searches, and answer general questions."
+            
+        elif category == "science":
+            science_response = self.get_science_info(query)
+            if science_response:
+                response = science_response
             else:
-                # If online search fails, try knowledge_data.json based on category
-                knowledge_result = None
+                response = "I don't have specific information about that scientific topic. Would you like me to search the web for it?"
                 
-                if category == "science":
-                    knowledge_result = self.get_science_info(query)
-                elif category == "math":
-                    knowledge_result = self.get_math_info(query)
-                elif category == "history":
-                    knowledge_result = self.get_history_info(query)
-                elif category == "geography":
-                    knowledge_result = self.get_geography_info(query)
-                else:
-                    # For general or uncategorized queries, check all knowledge sources
-                    knowledge_result = self.find_in_knowledge_base(query)
-                    if not knowledge_result:
-                        knowledge_result = self.get_science_info(query)
-                    if not knowledge_result:
-                        knowledge_result = self.get_math_info(query)
-                    if not knowledge_result:
-                        knowledge_result = self.get_history_info(query)
-                    if not knowledge_result:
-                        knowledge_result = self.get_geography_info(query)
+        elif category == "math":
+            math_response = self.get_math_info(query)
+            if math_response:
+                response = math_response
+            else:
+                response = "I don't have information on that mathematical concept. Would you like me to calculate something for you?"
                 
-                if knowledge_result:
-                    response = knowledge_result
-                else:
-                    # If both online search and knowledge base fail, provide a fallback message
-                    response = f"I'm sorry, I couldn't find information about '{query}'. Could you please rephrase your question or ask me about something else?"
+        elif category == "history":
+            history_response = self.get_history_info(query)
+            if history_response:
+                response = history_response
+            else:
+                response = "I don't have specific information about that historical topic. Would you like me to search for it?"
+                
+        elif category == "geography":
+            geography_response = self.get_geography_info(query)
+            if geography_response:
+                response = geography_response
+            else:
+                response = "I don't have specific information about that geographical topic. Would you like me to search for it?"
+                
+        else:
+            # Check knowledge base
+            for key, value in self.knowledge_base.items():
+                if key.lower() in query.lower():
+                    response = value
+                    break
+            
+            if not response:
+                try:
+                    # Try to use a more sophisticated search using TF-IDF
+                    vectorizer = TfidfVectorizer()
+                    knowledge_keys = list(self.knowledge_base.keys())
+                    tfidf_matrix = vectorizer.fit_transform(knowledge_keys)
+                    query_vector = vectorizer.transform([query])
+                    
+                    # Calculate similarity with all knowledge base keys
+                    similarities = cosine_similarity(query_vector, tfidf_matrix).flatten()
+                    
+                    # Find the most similar if above threshold
+                    if max(similarities) > 0.3:  # Threshold
+                        best_match_index = similarities.argmax()
+                        response = self.knowledge_base[knowledge_keys[best_match_index]]
+                except Exception as e:
+                    if self.debug_mode:
+                        print(f"TF-IDF error: {e}")
+            
+            # If still no response, give a generic one
+            if not response:
+                response = "I'm not sure how to answer that. Would you like me to search the web for you?"
         
-        # Save to cache
-        self.query_cache[query] = response
+        # Cache the response for future use
+        self.query_cache[query.lower()] = response
         
         # Add to conversation memory
-        self.conversation_memory.append(("assistant", response))
-        if len(self.conversation_memory) > self.memory_limit:
-            self.conversation_memory.pop(0)
-            
+        self.add_to_memory(query, response)
+        
+        # Log the query
+        self.log_query(query, response, category)
+        
         return response
         
     def run(self):
-        """Run the assistant in a continuous loop"""
-        try:
-            while self.is_active:
-                query = self.listen()
+        """Main loop for the assistant"""
+        while self.is_active:
+            query = self.listen()
+            if query:
+                response = self.process_query(query)
+                self.speak(response)
                 
-                if query:
-                    response = self.process_query(query)
-                    self.speak(response)
-                    
-                time.sleep(0.1)  # Small delay to prevent high CPU usage
-                
-        except KeyboardInterrupt:
-            self.speak("Shutting down. Goodbye!")
-        finally:
-            # Clean up resources
-            if hasattr(self, 'engine'):
-                self.engine.stop()
+                # Handle exit commands
+                if not self.is_active:
+                    break
 
-# Main execution
-if __name__ == "__main__":
-    print("Starting Smart Assistant...")
-    
-    # You can customize the assistant's name and voice
-    assistant = SmartAssistant(name="Alex", voice_index=0)
-    
-    # Run the assistant
+def main():
+    assistant = SmartAssistant(name="Jarvis", voice_index=0)
     assistant.run()
+
+if __name__ == "__main__":
+    main()
