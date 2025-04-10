@@ -175,6 +175,21 @@ class SmartAssistant:
         science_data = self.science_knowledge["science"]
         query_lower = query.lower()
         
+        # Pre-process query - tokenize and remove stopwords
+        query_tokens = word_tokenize(query_lower)
+        stop_words = set(stopwords.words('english'))
+        query_tokens = [token for token in query_tokens if token not in stop_words and len(token) > 2]
+        
+        # Special case for general science queries
+        if any(phrase in query_lower for phrase in ["what is science", "tell me about science", "explain science"]):
+            overview = "Science is the systematic study of the natural world through observation and experimentation. Here are some major branches of science:\n\n"
+            for topic, topic_data in science_data.items():
+                if isinstance(topic_data, str):
+                    overview += f"- {topic.capitalize()}: {topic_data[:100]}...\n"
+                elif isinstance(topic_data, dict):
+                    overview += f"- {topic.capitalize()}: {list(topic_data.keys())}\n"
+            return overview
+        
         # First, check for exact topic matches
         for topic, topic_data in science_data.items():
             if topic.lower() in query_lower:
@@ -208,26 +223,85 @@ class SmartAssistant:
                             overview += f"- {subtopic.capitalize()}: {list(info.keys())}\n"
                     return overview
         
-        # If no direct topic match, look for keywords in the subtopics
+        # If no direct topic match, use more sophisticated semantic matching
+        # Create a simple TF-IDF based matching
+        all_topics = []
+        all_keys = []
+        
+        # Flatten the structure for better search
         for topic, topic_data in science_data.items():
+            all_topics.append(topic)
+            all_keys.append(topic)
+            
             if isinstance(topic_data, dict):
                 for subtopic, info in topic_data.items():
-                    if subtopic.lower() in query_lower:
+                    all_topics.append(f"{topic} - {subtopic}")
+                    all_keys.append(f"{topic}|{subtopic}")
+                    
+                    if isinstance(info, dict):
+                        for detail_topic, _ in info.items():
+                            all_topics.append(f"{topic} - {subtopic} - {detail_topic}")
+                            all_keys.append(f"{topic}|{subtopic}|{detail_topic}")
+        
+        # If we have topics to match against
+        if all_topics:
+            try:
+                # Use TF-IDF vectorizer for better matching
+                vectorizer = TfidfVectorizer(stop_words='english')
+                vectors = vectorizer.fit_transform(all_topics)
+                query_vector = vectorizer.transform([query_lower])
+                
+                # Calculate similarity
+                similarities = cosine_similarity(query_vector, vectors)[0]
+                best_match_idx = similarities.argmax()
+                
+                # Only consider if similarity is above threshold
+                if similarities[best_match_idx] > 0.2:
+                    best_match_key = all_keys[best_match_idx]
+                    parts = best_match_key.split('|')
+                    
+                    # Navigate to the matched information
+                    if len(parts) == 1:
+                        topic = parts[0]
+                        topic_data = science_data[topic]
+                        if isinstance(topic_data, str):
+                            return f"{topic.capitalize()}: {topic_data}"
+                        else:
+                            # Return overview for dictionary data
+                            overview = f"About {topic}:\n\n"
+                            for subtopic, info in topic_data.items():
+                                if isinstance(info, str):
+                                    overview += f"- {subtopic.capitalize()}: {info}\n"
+                                else:
+                                    overview += f"- {subtopic.capitalize()}\n"
+                            return overview
+                    
+                    elif len(parts) == 2:
+                        topic, subtopic = parts
+                        info = science_data[topic][subtopic]
                         if isinstance(info, str):
                             return f"{subtopic.capitalize()}: {info}"
-                        elif isinstance(info, dict):
-                            overview = f"About {subtopic}:\n"
+                        else:
+                            # Return overview for nested dictionary
+                            overview = f"About {subtopic}:\n\n"
                             for detail_topic, detail_info in info.items():
                                 overview += f"- {detail_topic.capitalize()}: {detail_info}\n"
                             return overview
+                    
+                    elif len(parts) == 3:
+                        topic, subtopic, detail_topic = parts
+                        return f"{detail_topic.capitalize()}: {science_data[topic][subtopic][detail_topic]}"
+            except Exception as e:
+                if self.debug_mode:
+                    print(f"Error in semantic matching: {e}")
         
-        # If still no match, check for any keyword in the content
+        # Last resort - check for any keyword in the content
         for topic, topic_data in science_data.items():
             if isinstance(topic_data, dict):
                 for subtopic, info in topic_data.items():
-                    keywords = subtopic.split()
-                    for keyword in keywords:
-                        if len(keyword) > 3 and keyword.lower() in query_lower:
+                    for query_token in query_tokens:
+                        if len(query_token) > 3 and (query_token in subtopic.lower() or 
+                                                    (isinstance(info, str) and query_token in info.lower())):
                             if isinstance(info, str):
                                 return f"{subtopic.capitalize()}: {info}"
                             break
@@ -241,6 +315,11 @@ class SmartAssistant:
         
         math_data = self.science_knowledge["math"]
         query_lower = query.lower()
+        
+        # Pre-process query
+        query_tokens = word_tokenize(query_lower)
+        stop_words = set(stopwords.words('english'))
+        query_tokens = [token for token in query_tokens if token not in stop_words]
         
         # Check for direct math concept mentions
         for concept, info in math_data.items():
@@ -273,62 +352,99 @@ class SmartAssistant:
             table_key = f"table_{number}"
             if "tables" in math_data and table_key in math_data["tables"]:
                 return f"Multiplication table of {number}: {math_data['tables'][table_key]}"
+            elif number.isdigit():
+                # Generate the table on-the-fly if not found
+                table = []
+                for i in range(1, 11):
+                    table.append(f"{number}x{i}={int(number)*i}")
+                return f"Multiplication table of {number}: {', '.join(table)}"
         
-        square_match = re.search(r'square of (\d+)', query_lower)
-        if square_match:
-            number = square_match.group(1)
-            square_key = f"square_{number}"
-            if "square_numbers" in math_data and square_key in math_data["square_numbers"]:
-                value = math_data["square_numbers"][square_key]
-                return f"The square of {number} is {value}"
-            elif number.isdigit() and int(number) <= 100:
-                # Calculate on-the-fly for reasonable numbers
-                value = int(number) ** 2
-                return f"The square of {number} is {value}"
+        # Other specific patterns with improved regex
+        for pattern, func, key_prefix, dict_key in [
+            (r'square of (\d+)', lambda x: int(x)**2, "square_", "square_numbers"),
+            (r'cube of (\d+)', lambda x: int(x)**3, "cube_", "cube_numbers"),
+            (r'square root of (\d+)', lambda x: round(float(x)**0.5, 3), "sqrt_", "square_roots"),
+            (r'cube root of (\d+)', lambda x: round(float(x)**(1/3), 3), "cbrt_", "cube_roots")
+        ]:
+            match = re.search(pattern, query_lower)
+            if match:
+                number = match.group(1)
+                dict_name = dict_key
+                key_name = f"{key_prefix}{number}"
+                
+                # Try to find in knowledge base first
+                if dict_name in math_data and key_name in math_data[dict_name]:
+                    value = math_data[dict_name][key_name]
+                    return f"The {pattern.split(' of')[0]} of {number} is {value}"
+                elif number.isdigit() and int(number) <= 1000:
+                    # Calculate on-the-fly for reasonable numbers
+                    try:
+                        value = func(number)
+                        return f"The {pattern.split(' of')[0]} of {number} is {value}"
+                    except:
+                        pass
         
-        cube_match = re.search(r'cube of (\d+)', query_lower)
-        if cube_match:
-            number = cube_match.group(1)
-            cube_key = f"cube_{number}"
-            if "cube_numbers" in math_data and cube_key in math_data["cube_numbers"]:
-                value = math_data["cube_numbers"][cube_key]
-                return f"The cube of {number} is {value}"
-            elif number.isdigit() and int(number) <= 50:
-                # Calculate on-the-fly for reasonable numbers
-                value = int(number) ** 3
-                return f"The cube of {number} is {value}"
+        # Use semantic matching for better results
+        all_math_topics = []
+        all_math_keys = []
         
-        sqrt_match = re.search(r'square root of (\d+)', query_lower)
-        if sqrt_match:
-            number = sqrt_match.group(1)
-            sqrt_key = f"sqrt_{number}"
-            if "square_roots" in math_data and sqrt_key in math_data["square_roots"]:
-                value = math_data["square_roots"][sqrt_key]
-                return f"The square root of {number} is {value}"
-            elif number.isdigit() and int(number) <= 1000:
-                # Calculate on-the-fly for reasonable numbers
-                import math
-                value = round(math.sqrt(int(number)), 3)
-                return f"The square root of {number} is {value}"
-        
-        # Check for fraction terms
-        for fraction, info in math_data.get("fractions", {}).items():
-            if fraction in query_lower:
-                return info
-        
-        # Check for unit conversion
-        for conversion, info in math_data.get("units_conversion", {}).items():
-            conversion_terms = conversion.split('_to_')
-            if all(term in query_lower for term in conversion_terms):
-                return info
-        
-        # If no direct match was found, look for any math-related keywords
+        # Flatten math data for search
         for concept, info in math_data.items():
-            if isinstance(info, str):
-                keywords = concept.split()
-                for keyword in keywords:
-                    if len(keyword) > 3 and keyword.lower() in query_lower:
-                        return info
+            all_math_topics.append(concept)
+            all_math_keys.append(concept)
+            
+            if isinstance(info, dict):
+                for sub_concept, sub_info in info.items():
+                    all_math_topics.append(f"{concept} {sub_concept}")
+                    all_math_keys.append(f"{concept}|{sub_concept}")
+        
+        if all_math_topics:
+            try:
+                # TF-IDF based matching
+                vectorizer = TfidfVectorizer(stop_words='english')
+                vectors = vectorizer.fit_transform(all_math_topics)
+                query_vector = vectorizer.transform([query_lower])
+                
+                similarities = cosine_similarity(query_vector, vectors)[0]
+                best_match_idx = similarities.argmax()
+                
+                if similarities[best_match_idx] > 0.2:  # Threshold
+                    best_match_key = all_math_keys[best_match_idx]
+                    parts = best_match_key.split('|')
+                    
+                    if len(parts) == 1:
+                        concept = parts[0]
+                        info = math_data[concept]
+                        if isinstance(info, str):
+                            return info
+                        else:
+                            overview = f"About {concept}:\n\n"
+                            for sub_concept, sub_info in info.items():
+                                if isinstance(sub_info, str):
+                                    overview += f"- {sub_concept}: {sub_info}\n"
+                                else:
+                                    overview += f"- {sub_concept}\n"
+                            return overview
+                    
+                    elif len(parts) == 2:
+                        concept, sub_concept = parts
+                        return f"{sub_concept}: {math_data[concept][sub_concept]}"
+            except Exception as e:
+                if self.debug_mode:
+                    print(f"Error in math semantic matching: {e}")
+        
+        # Check for keyword matches as last resort
+        for query_token in query_tokens:
+            if len(query_token) > 3:
+                for concept, info in math_data.items():
+                    if query_token in concept.lower():
+                        if isinstance(info, str):
+                            return info
+                        elif isinstance(info, dict):
+                            # Return a relevant subconcept if possible
+                            for sub_concept, sub_info in info.items():
+                                if query_token in sub_concept.lower():
+                                    return f"{sub_concept}: {sub_info}"
         
         return None
     
@@ -340,55 +456,117 @@ class SmartAssistant:
         history_data = self.science_knowledge["history"]
         query_lower = query.lower()
         
+        # Pre-process query
+        query_tokens = word_tokenize(query_lower)
+        stop_words = set(stopwords.words('english'))
+        query_tokens = [token for token in query_tokens if token not in stop_words and len(token) > 2]
+        
         # Check for direct historical event/period mentions
         for event, info in history_data.items():
             if event.lower() in query_lower:
                 return info
         
+        # TF-IDF based semantic matching
+        try:
+            # Prepare data for vectorization
+            event_texts = list(history_data.keys())
+            
+            # Create vectorizer
+            vectorizer = TfidfVectorizer(stop_words='english')
+            event_vectors = vectorizer.fit_transform(event_texts)
+            query_vector = vectorizer.transform([query_lower])
+            
+            # Calculate similarities
+            similarities = cosine_similarity(query_vector, event_vectors)[0]
+            
+            # Find the best matches
+            best_matches = []
+            for i, score in enumerate(similarities):
+                if score > 0.25:  # Lower threshold for more matches
+                    best_matches.append((event_texts[i], score))
+            
+            # Sort by similarity score
+            best_matches.sort(key=lambda x: x[1], reverse=True)
+            
+            if best_matches:
+                # If we have a strong match, return that information
+                if best_matches[0][1] > 0.4:
+                    event = best_matches[0][0]
+                    return history_data[event]
+                    
+                # If we have multiple matches, provide options
+                if len(best_matches) > 1:
+                    response = "I found several historical topics that might be related to your question:\n\n"
+                    for event, _ in best_matches[:3]:  # Limit to top 3
+                        response += f"- {event}: {history_data[event][:100]}...\n\n"
+                    response += "You can ask me specifically about any of these topics for more information."
+                    return response
+                
+                # If just one match but weak, still return it
+                event = best_matches[0][0]
+                return history_data[event]
+        except Exception as e:
+            if self.debug_mode:
+                print(f"Error in history semantic matching: {e}")
+        
         # Check history questions if available
         if "history_questions" in self.science_knowledge:
             history_questions = self.science_knowledge["history_questions"]
             
-            # Find the most similar question
-            best_match = None
-            best_match_score = 0
-            
-            for question in history_questions:
-                # Simple word overlap similarity
-                question_words = set(question.lower().split())
-                query_words = set(query_lower.split())
-                common_words = question_words.intersection(query_words)
+            # Find the most similar question using proper text similarity
+            try:
+                # Vectorize questions and query
+                vectorizer = TfidfVectorizer(stop_words='english')
+                question_vectors = vectorizer.fit_transform(history_questions)
+                query_vector = vectorizer.transform([query_lower])
                 
-                # Calculate similarity score
-                similarity = len(common_words) / max(len(question_words), len(query_words))
+                # Calculate similarities
+                similarities = cosine_similarity(query_vector, question_vectors)[0]
+                best_match_index = similarities.argmax()
+                best_match_score = similarities[best_match_index]
                 
-                if similarity > best_match_score and similarity > 0.3:  # Threshold
-                    best_match_score = similarity
-                    best_match = question
-            
-            if best_match:
-                # If we found a similar question, try to provide an answer
-                return f"You might be asking about: {best_match}\n\nI'll search for information on this historical topic."
+                if best_match_score > 0.3:  # Threshold
+                    best_match = history_questions[best_match_index]
+                    # Extract key terms from the question
+                    best_match_tokens = word_tokenize(best_match.lower())
+                    best_match_tokens = [token for token in best_match_tokens if token not in stop_words and len(token) > 3]
+                    
+                    # Look for related topics using these key terms
+                    for term in best_match_tokens:
+                        for event, info in history_data.items():
+                            if term in event.lower():
+                                return f"You might be asking about: {best_match}\n\n{event}: {info}"
+                    
+                    return f"You might be asking: {best_match}\n\nI'll search for information on this historical topic."
+            except Exception as e:
+                if self.debug_mode:
+                    print(f"Error in question matching: {e}")
         
-        # If no direct match was found, look for related topics
-        related_topics = []
+        # Keyword matching as a fallback
+        keyword_matches = {}
         for event, info in history_data.items():
-            # Check if any significant words from the query appear in the event or info
-            event_words = event.split()
-            for word in query_lower.split():
-                if len(word) > 3 and (word in event.lower() or word in info.lower()):
-                    related_topics.append((event, info))
-                    break
+            match_score = 0
+            for token in query_tokens:
+                if token in event.lower():
+                    match_score += 2  # Higher weight for event name matches
+                if token in info.lower():
+                    match_score += 1  # Lower weight for content matches
+            
+            if match_score > 0:
+                keyword_matches[event] = match_score
         
-        if related_topics:
-            if len(related_topics) == 1:
-                event, info = related_topics[0]
-                return f"Related historical information about {event}:\n{info}"
+        if keyword_matches:
+            # Sort by match score
+            sorted_matches = sorted(keyword_matches.items(), key=lambda x: x[1], reverse=True)
+            
+            if len(sorted_matches) == 1:
+                event = sorted_matches[0][0]
+                return f"Related historical information about {event}:\n{history_data[event]}"
             else:
-                response = "I found several historical topics that might be related:\n\n"
-                for event, _ in related_topics[:3]:  # Limit to top 3
-                    response += f"- {event.title()}\n"
-                response += "\nYou can ask me specifically about any of these topics."
+                response = "I found several historical topics that might be related to your question:\n\n"
+                for event, _ in sorted_matches[:3]:  # Limit to top 3
+                    response += f"- {event}: {history_data[event][:100]}...\n\n"
+                response += "You can ask me specifically about any of these topics for more information."
                 return response
         
         return None
@@ -400,6 +578,21 @@ class SmartAssistant:
         
         geography_data = self.science_knowledge["geography"]
         query_lower = query.lower()
+        
+        # Pre-process query
+        query_tokens = word_tokenize(query_lower)
+        stop_words = set(stopwords.words('english'))
+        query_tokens = [token for token in query_tokens if token not in stop_words and len(token) > 2]
+        
+        # Special case for general geography queries
+        if any(phrase in query_lower for phrase in ["what is geography", "tell me about geography", "explain geography"]):
+            overview = "Geography is the study of Earth's landscapes, environments, and the relationships between people and their environments. Here are some major topics in geography:\n\n"
+            for topic, topic_data in geography_data.items():
+                if isinstance(topic_data, str):
+                    overview += f"- {topic.capitalize()}: {topic_data[:100]}...\n"
+                elif isinstance(topic_data, dict):
+                    overview += f"- {topic.capitalize()}: {list(topic_data.keys())}\n"
+            return overview
         
         # First, check for exact topic matches
         for topic, topic_data in geography_data.items():
@@ -437,53 +630,122 @@ class SmartAssistant:
                     return f"I can provide information about the following in {topic}:\n" + ", ".join(topic_data.keys())
         
         # Check for specific entity names in Indian states and UTs
-        if "state" in query_lower or "capital" in query_lower or "india" in query_lower:
-            states_data = geography_data.get("india states and capitals", {})
-            uts_data = geography_data.get("india union territories", {})
-            
-            # Check all states for a match
-            for state, data in states_data.items():
-                if state.lower() in query_lower:
-                    capital = data.get("capital", "Unknown")
-                    description = data.get("description", "")
-                    return f"{state}: Capital - {capital}\n{description}"
-                
-                # Also check if query is asking for capital of a specific state
-                capital_match = re.search(r"capital of ([a-zA-Z ]+)", query_lower)
-                if capital_match:
-                    state_name = capital_match.group(1).strip()
-                    if state.lower() == state_name or state.lower().startswith(state_name):
-                        capital = data.get("capital", "Unknown")
-                        return f"The capital of {state} is {capital}."
-            
-            # Check all UTs for a match
-            for ut, data in uts_data.items():
-                if ut.lower() in query_lower:
-                    capital = data.get("capital", "Unknown")
-                    description = data.get("description", "")
-                    return f"{ut}: Capital - {capital}\n{description}"
-                
-                # Also check if query is asking for capital of a specific UT
-                if capital_match:
-                    ut_name = capital_match.group(1).strip()
-                    if ut.lower() == ut_name or ut.lower().startswith(ut_name):
-                        capital = data.get("capital", "Unknown")
-                        return f"The capital of {ut} is {capital}."
+        states_data = geography_data.get("india states and capitals", {})
+        uts_data = geography_data.get("india union territories", {})
         
-        # Check for general geographic features
-        for feature in ["mountain", "river", "ocean", "desert", "rainforest", "reef", "canyon"]:
+        # Look for state or UT names
+        for collections in [states_data, uts_data]:
+            for entity_name, entity_data in collections.items():
+                # Check for direct mention or partial match
+                if entity_name.lower() in query_lower or any(token in entity_name.lower() for token in query_tokens):
+                    if isinstance(entity_data, str):
+                        return entity_data
+                    elif isinstance(entity_data, dict):
+                        capital = entity_data.get("capital", "Unknown")
+                        description = entity_data.get("description", "")
+                        result = f"{entity_name}: Capital - {capital}"
+                        if description:
+                            result += f"\n{description}"
+                        return result
+        
+        # Check for "capital of" pattern with improved matching
+        capital_match = re.search(r"capital of ([a-zA-Z ]+)", query_lower)
+        if capital_match:
+            entity_name = capital_match.group(1).strip()
+            
+            # Check both states and UTs
+            for collections in [states_data, uts_data]:
+                for name, data in collections.items():
+                    # Check for exact or partial match on entity name
+                    if entity_name == name.lower() or entity_name in name.lower():
+                        capital = data.get("capital", "Unknown") if isinstance(data, dict) else "Unknown"
+                        return f"The capital of {name} is {capital}."
+                    
+                    # Check if any word in the entity name matches
+                    entity_tokens = entity_name.split()
+                    if any(token in name.lower() for token in entity_tokens if len(token) > 3):
+                        capital = data.get("capital", "Unknown") if isinstance(data, dict) else "Unknown"
+                        return f"The capital of {name} is {capital}."
+        
+        # TF-IDF based semantic matching for general geographic features
+        geo_topics = []
+        geo_keys = []
+        
+        # Flatten the structure for search
+        for topic, topic_data in geography_data.items():
+            if isinstance(topic_data, str):
+                geo_topics.append(topic)
+                geo_keys.append(topic)
+            elif isinstance(topic_data, dict):
+                geo_topics.append(topic)
+                geo_keys.append(topic)
+                
+                for entity_name, entity_data in topic_data.items():
+                    geo_topics.append(f"{topic} {entity_name}")
+                    geo_keys.append(f"{topic}|{entity_name}")
+        
+        try:
+            # Create vectorizer
+            vectorizer = TfidfVectorizer(stop_words='english')
+            geo_vectors = vectorizer.fit_transform(geo_topics)
+            query_vector = vectorizer.transform([query_lower])
+            
+            # Calculate similarities
+            similarities = cosine_similarity(query_vector, geo_vectors)[0]
+            best_match_idx = similarities.argmax()
+            
+            if similarities[best_match_idx] > 0.25:  # Lower threshold for geography
+                best_match_key = geo_keys[best_match_idx]
+                parts = best_match_key.split('|')
+                
+                if len(parts) == 1:
+                    topic = parts[0]
+                    topic_data = geography_data[topic]
+                    if isinstance(topic_data, str):
+                        return f"{topic}: {topic_data}"
+                    else:
+                        # Provide overview for nested data
+                        return f"I can provide information about {topic}. Please ask about a specific {topic.lower()} or type."
+                
+                elif len(parts) == 2:
+                    topic, entity_name = parts
+                    entity_data = geography_data[topic][entity_name]
+                    if isinstance(entity_data, str):
+                        return f"{entity_name}: {entity_data}"
+                    elif isinstance(entity_data, dict):
+                        capital = entity_data.get("capital", "Unknown")
+                        description = entity_data.get("description", "")
+                        return f"{entity_name}: Capital - {capital}\n{description}"
+        except Exception as e:
+            if self.debug_mode:
+                print(f"Error in geography semantic matching: {e}")
+        
+        # Keyword matching for basic geographic features
+        for feature in ["mountain", "river", "ocean", "desert", "rainforest", "reef", "canyon", "continent"]:
             if feature in query_lower:
                 for topic, info in geography_data.items():
                     if feature in topic.lower() and isinstance(info, str):
-                        return info
+                        return f"{topic}: {info}"
         
-        # If no direct match, look for keywords in geography topics
+        # Last resort - check for any keyword matches
+        keyword_matches = {}
         for topic, info in geography_data.items():
             if isinstance(info, str):
-                topic_keywords = topic.split()
-                for keyword in topic_keywords:
-                    if len(keyword) > 3 and keyword.lower() in query_lower:
-                        return info
+                match_score = 0
+                for token in query_tokens:
+                    if token in topic.lower():
+                        match_score += 2
+                    if token in info.lower():
+                        match_score += 1
+                
+                if match_score > 0:
+                    keyword_matches[topic] = (match_score, info)
+        
+        if keyword_matches:
+            # Sort by match score
+            sorted_matches = sorted(keyword_matches.items(), key=lambda x: x[1][0], reverse=True)
+            top_match = sorted_matches[0]
+            return f"{top_match[0]}: {top_match[1][1]}"
         
         return None
 
@@ -506,42 +768,57 @@ class SmartAssistant:
                 self.recognizer.adjust_for_ambient_noise(source, duration=0.5)
                 
                 # Set a dynamic energy threshold - helps with different voice volumes
-                self.recognizer.energy_threshold = 300  # Default is 300, increase for noisy environments
+                self.recognizer.energy_threshold = 250  # Lower from 300 to be more sensitive
                 self.recognizer.dynamic_energy_threshold = True
                 
                 # Increase timeout and phrase_time_limit to give users more time to speak
                 # timeout: how long to wait for speech to start
-                # phrase_time_limit: maximum length of a phrase
-                audio = self.recognizer.listen(source, timeout=10, phrase_time_limit=10)
+                # phrase_time_limit: maximum length of a phrase - increased to 15 seconds
+                audio = self.recognizer.listen(source, timeout=12, phrase_time_limit=15)
                 
                 if self.listening_sound:
                     pygame.mixer.stop()
                 
+                # Try multiple recognition engines with fallbacks
+                text = None
+                
+                # First try Google's service which is most accurate
                 try:
-                    # Use a more comprehensive recognition with language specification
                     text = self.recognizer.recognize_google(audio, language='en-IN')
-                    print(f"You said: {text}")
-                    return text.lower()
                 except sr.UnknownValueError:
                     if self.debug_mode:
-                        print("Could not understand audio")
-                    return ""
+                        print("Google Speech Recognition could not understand audio")
                 except sr.RequestError as e:
                     if self.debug_mode:
-                        print(f"Error with Google Speech Recognition service: {e}")
-                    # Fallback to offline recognition if available
+                        print(f"Could not request results from Google Speech Recognition service: {e}")
+                
+                # If Google fails, try wit.ai as backup if available
+                if text is None:
+                    try:
+                        text = self.recognizer.recognize_wit(audio, key="YOUR_WIT_AI_KEY")
+                    except (sr.UnknownValueError, sr.RequestError, AttributeError):
+                        if self.debug_mode:
+                            print("Wit.ai recognition failed or not available")
+                            
+                # Finally try offline Sphinx as last resort
+                if text is None:
                     try:
                         text = self.recognizer.recognize_sphinx(audio)
-                        print(f"You said (offline): {text}")
-                        return text.lower()
-                    except:
+                    except (sr.UnknownValueError, sr.RequestError, AttributeError):
                         if self.debug_mode:
-                            print("Offline recognition also failed")
-                        return ""
+                            print("Sphinx recognition also failed or not available")
+                
+                if text:
+                    print(f"You said: {text}")
+                    return text.lower()
+                else:
+                    if self.debug_mode:
+                        print("Could not understand audio with any recognition service")
+                    return ""
                     
             except sr.WaitTimeoutError:
                 if self.debug_mode:
-                    print("Listening timed out")
+                    print("Listening timed out - no speech detected")
                 if self.listening_sound:
                     pygame.mixer.stop()
                 return ""
@@ -553,6 +830,15 @@ class SmartAssistant:
         
         query_lower = query.lower()
         
+        # Pre-process query
+        query_tokens = word_tokenize(query_lower)
+        stop_words = set(stopwords.words('english'))
+        query_tokens = [token for token in query_tokens if token not in stop_words and len(token) > 2]
+        
+        # Special case handling for common misclassifications
+        if "raspberry pi" in query_lower:
+            return "web_search"  # Force web search for Raspberry Pi queries
+        
         # Check for exact phrase matches first (more specific)
         for category, keywords in self.categories.items():
             for keyword in keywords:
@@ -561,7 +847,6 @@ class SmartAssistant:
                     return category
         
         # Use word boundary matching for single words to avoid substring matches
-        # For example, 'time' should match 'what time is it' but not 'sometimes'
         for category, keywords in self.categories.items():
             for keyword in keywords:
                 if len(keyword.split()) == 1:  # Single word
@@ -587,7 +872,10 @@ class SmartAssistant:
         
         # Return the category with the highest score if any
         if category_scores:
-            return max(category_scores.items(), key=lambda x: x[1])[0]
+            best_category = max(category_scores.items(), key=lambda x: x[1])[0]
+            # Only return if score is significant
+            if category_scores[best_category] > 1:
+                return best_category
                 
         # Default to web search if no category matches
         return "web_search"
@@ -720,21 +1008,28 @@ class SmartAssistant:
             return "I'm having trouble getting the news right now. Please try again later."
     
     def search_web(self, query):
-        """Search the web for information"""
+        """Search the web for information with improved accuracy"""
         try:
             # Use web scraping to get search results
             search_query = query.replace("search for", "").replace("google", "").replace("find", "").replace("look up", "").strip()
             
-            # First try Wikipedia
+            # First try Wikipedia with more specific handling for various topics
             try:
-                wiki_result = self.get_wikipedia_info(search_query)
+                # For certain topics, make the Wikipedia query more specific
+                if "raspberry pi" in search_query.lower():
+                    wiki_result = self.get_wikipedia_info("Raspberry Pi computer")
+                elif any(state in search_query.lower() for state in ["jammu", "kashmir"]):
+                    wiki_result = self.get_wikipedia_info("Jammu and Kashmir")
+                else:
+                    wiki_result = self.get_wikipedia_info(search_query)
+                    
                 if wiki_result and "I couldn't find information" not in wiki_result:
                     return wiki_result
             except Exception as wiki_error:
                 if self.debug_mode:
                     print(f"Wikipedia search error: {wiki_error}")
             
-            # Then try Google search
+            # Then try Google search with more careful parsing
             url = f"https://www.google.com/search?q={search_query.replace(' ', '+')}"
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.110 Safari/537.36'
@@ -748,10 +1043,24 @@ class SmartAssistant:
             if answer_div:
                 return answer_div.text
                 
-            # Look for search result snippets
+            # Look for search result snippets with better handling of nested content
             results = soup.find_all('div', {'class': 'BNeawe s3v9rd AP7Wnd'})
             if results:
-                return results[0].text
+                for result in results:
+                    # Skip very short results as they're often not useful
+                    if len(result.text.strip()) > 50:
+                        return result.text.strip()
+                
+                # If we only found short results, return the first one anyway
+                if results[0]:
+                    return results[0].text.strip()
+            
+            # Try alternate selectors for Google's changing layout
+            alternate_results = soup.find_all('div', {'class': 'kCrYT'})
+            if alternate_results:
+                for result in alternate_results:
+                    if result.text and len(result.text.strip()) > 50:
+                        return result.text.strip()
             
             # If web search fails, return None to indicate no results found
             return None
@@ -863,7 +1172,7 @@ class SmartAssistant:
     def process_query(self, query):
         """Process the user's query and generate a more accurate response"""
         if not query:
-            return "I didn't catch that. Could you please repeat?"
+            return "I didn't catch that. Could you please repeat more clearly?"
             
         # Check if query is in cache
         if query in self.query_cache:
@@ -891,13 +1200,9 @@ class SmartAssistant:
         if any(phrase in query.lower() for phrase in self.categories['about']):
             return f"I'm {self.name}, a smart assistant designed to help answer your questions about a wide variety of topics. I can tell you the time, date, weather, news, and information from Wikipedia, among other things. Just ask me a question!"
         
-        # Determine query category with improved categorization
+        # Handle straightforward service categories first
         category = self.categorize_query(query)
         
-        # Process based on category
-        response = ""
-        
-        # Handle straightforward service categories first
         if category == "time":
             response = self.get_current_time()
         elif category == "date":
@@ -917,52 +1222,36 @@ class SmartAssistant:
         elif category == "read_text":
             response = self.get_last_captured_text()
         else:
-            # For knowledge-based categories, use a more sophisticated approach
-            # First, try to get information from our knowledge base
-            knowledge_result = None
+            # For most queries, try web-based sources first (Wikipedia and web search)
             
-            # Try the specific category first
-            if category == "science":
-                knowledge_result = self.get_science_info(query)
-            elif category == "math":
-                knowledge_result = self.get_math_info(query)
-            elif category == "history":
-                knowledge_result = self.get_history_info(query)
-            elif category == "geography":
-                knowledge_result = self.get_geography_info(query)
+            # First, try Wikipedia for informational queries
+            wiki_result = self.get_wikipedia_info(query)
+            if wiki_result:
+                response = wiki_result
             else:
-                # For general queries, check the basic knowledge base first
-                knowledge_result = self.find_in_knowledge_base(query)
-            
-            # If we found a result in our knowledge base, use it
-            if knowledge_result:
-                response = knowledge_result
-            else:
-                # If no result from knowledge base, try online search
-                online_result = self.search_web(query)
-                
-                if online_result:
-                    response = online_result
+                # If Wikipedia doesn't have it, try general web search
+                search_result = self.search_web(query)
+                if search_result:
+                    response = search_result
                 else:
-                    # If online search fails, try a more comprehensive check of all knowledge sources
-                    # This is a fallback for when the category might have been misidentified
-                    knowledge_sources = [
-                        ("science", self.get_science_info),
-                        ("math", self.get_math_info),
-                        ("history", self.get_history_info),
-                        ("geography", self.get_geography_info)
-                    ]
+                    # Only fall back to local knowledge base if web sources fail
                     
-                    for source_name, source_func in knowledge_sources:
-                        if source_name != category:  # Skip the one we already checked
-                            result = source_func(query)
-                            if result:
-                                response = result
-                                break
+                    # Try specific knowledge domains if the category suggests it
+                    if category == "science":
+                        knowledge_result = self.get_science_info(query)
+                    elif category == "math":
+                        knowledge_result = self.get_math_info(query)
+                    elif category == "history":
+                        knowledge_result = self.get_history_info(query)
+                    elif category == "geography":
+                        knowledge_result = self.get_geography_info(query)
+                    else:
+                        knowledge_result = self.find_in_knowledge_base(query)
                     
-                    # If we still don't have a response, provide a more helpful fallback message
-                    if not response:
-                        response = f"I'm sorry, I don't have specific information about '{query}'. Could you please rephrase your question or ask me about something else?"
+                    if knowledge_result:
+                        response = knowledge_result
+                    else:
+                        response = f"I'm sorry, I couldn't find information about '{query}'. Could you please rephrase your question or ask me about something else?"
         
         # Save to cache
         self.query_cache[query] = response
