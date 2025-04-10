@@ -63,7 +63,7 @@ class SmartAssistant:
     def __init__(self, api_key):
         # Initialize Gemini API
         genai.configure(api_key=api_key)
-        self.model = genai.GenerativeModel('gemini-pro')
+        self.model = genai.GenerativeModel('gemini-2.5-pro-exp-03-25')
         
         # Initialize chat history directory
         self.history_dir = "chat_history"

@@ -547,16 +547,48 @@ class SmartAssistant:
                 return ""
     
     def categorize_query(self, query):
-        """Determine the category of a user query"""
+        """Determine the category of a user query using more sophisticated matching"""
         if not query:
             return None
-            
-        # Check each category for matching keywords
+        
+        query_lower = query.lower()
+        
+        # Check for exact phrase matches first (more specific)
         for category, keywords in self.categories.items():
             for keyword in keywords:
-                if keyword in query:
+                # Check for exact phrases (higher priority)
+                if keyword in query_lower and len(keyword.split()) > 1:
                     return category
-                    
+        
+        # Use word boundary matching for single words to avoid substring matches
+        # For example, 'time' should match 'what time is it' but not 'sometimes'
+        for category, keywords in self.categories.items():
+            for keyword in keywords:
+                if len(keyword.split()) == 1:  # Single word
+                    # Check if it's a whole word using word boundaries
+                    pattern = r'\b' + re.escape(keyword) + r'\b'
+                    if re.search(pattern, query_lower):
+                        return category
+        
+        # For more complex queries, use a scoring system
+        category_scores = {}
+        words = query_lower.split()
+        
+        for category, keywords in self.categories.items():
+            score = 0
+            for keyword in keywords:
+                keyword_words = keyword.split()
+                # Check for partial matches
+                for kw in keyword_words:
+                    if kw in words and len(kw) > 2:  # Only count meaningful words
+                        score += 1
+            if score > 0:
+                category_scores[category] = score
+        
+        # Return the category with the highest score if any
+        if category_scores:
+            return max(category_scores.items(), key=lambda x: x[1])[0]
+                
         # Default to web search if no category matches
         return "web_search"
         
@@ -829,19 +861,19 @@ class SmartAssistant:
             return "I'm having trouble retrieving the last captured text. Please try again later."
     
     def process_query(self, query):
-        """Process the user's query and generate a response"""
+        """Process the user's query and generate a more accurate response"""
         if not query:
             return "I didn't catch that. Could you please repeat?"
             
         # Check if query is in cache
         if query in self.query_cache:
             return self.query_cache[query]
-            
+        
         # Add to conversation memory
         self.conversation_memory.append(("user", query))
         if len(self.conversation_memory) > self.memory_limit:
             self.conversation_memory.pop(0)
-            
+        
         # Check for assistant name in query to activate
         assistant_names = [self.name.lower(), "assistant"]
         is_addressed = any(name in query.lower() for name in assistant_names)
@@ -850,28 +882,33 @@ class SmartAssistant:
         if any(word in query.lower() for word in self.categories['goodbye']):
             self.is_active = False
             return "Goodbye! Have a great day."
-            
+        
         # Basic greeting
         if any(word in query.lower() for word in self.categories['greeting']):
             return f"Hello! How can I help you today?"
-            
+        
         # About the assistant
         if any(phrase in query.lower() for phrase in self.categories['about']):
             return f"I'm {self.name}, a smart assistant designed to help answer your questions about a wide variety of topics. I can tell you the time, date, weather, news, and information from Wikipedia, among other things. Just ask me a question!"
-            
-        # Determine query category
+        
+        # Determine query category with improved categorization
         category = self.categorize_query(query)
         
         # Process based on category
         response = ""
+        
+        # Handle straightforward service categories first
         if category == "time":
             response = self.get_current_time()
         elif category == "date":
             response = self.get_current_date()
         elif category == "weather":
-            # Extract location if provided
-            location_match = re.search(r'weather in ([a-zA-Z ]+)', query)
-            location = location_match.group(1) if location_match else ""
+            # Extract location if provided with improved pattern matching
+            location_match = re.search(r'(?:weather|temperature|forecast)\s+(?:in|at|for)\s+([a-zA-Z ]+)', query.lower())
+            if not location_match:
+                # Try a simpler pattern
+                location_match = re.search(r'([a-zA-Z ]+)\s+(?:weather|temperature|forecast)', query.lower())
+            location = location_match.group(1).strip() if location_match else ""
             response = self.get_weather(location)
         elif category == "news":
             response = self.get_news()
@@ -880,45 +917,52 @@ class SmartAssistant:
         elif category == "read_text":
             response = self.get_last_captured_text()
         else:
-            # For all other categories, follow this search order:
-            # 1. Try online search first
-            # 2. If online search fails, try knowledge_data.json
-            # 3. If both fail, provide a fallback message
+            # For knowledge-based categories, use a more sophisticated approach
+            # First, try to get information from our knowledge base
+            knowledge_result = None
             
-            # First try online search
-            online_result = self.search_web(query)
-            
-            if online_result:
-                response = online_result
+            # Try the specific category first
+            if category == "science":
+                knowledge_result = self.get_science_info(query)
+            elif category == "math":
+                knowledge_result = self.get_math_info(query)
+            elif category == "history":
+                knowledge_result = self.get_history_info(query)
+            elif category == "geography":
+                knowledge_result = self.get_geography_info(query)
             else:
-                # If online search fails, try knowledge_data.json based on category
-                knowledge_result = None
+                # For general queries, check the basic knowledge base first
+                knowledge_result = self.find_in_knowledge_base(query)
+            
+            # If we found a result in our knowledge base, use it
+            if knowledge_result:
+                response = knowledge_result
+            else:
+                # If no result from knowledge base, try online search
+                online_result = self.search_web(query)
                 
-                if category == "science":
-                    knowledge_result = self.get_science_info(query)
-                elif category == "math":
-                    knowledge_result = self.get_math_info(query)
-                elif category == "history":
-                    knowledge_result = self.get_history_info(query)
-                elif category == "geography":
-                    knowledge_result = self.get_geography_info(query)
+                if online_result:
+                    response = online_result
                 else:
-                    # For general or uncategorized queries, check all knowledge sources
-                    knowledge_result = self.find_in_knowledge_base(query)
-                    if not knowledge_result:
-                        knowledge_result = self.get_science_info(query)
-                    if not knowledge_result:
-                        knowledge_result = self.get_math_info(query)
-                    if not knowledge_result:
-                        knowledge_result = self.get_history_info(query)
-                    if not knowledge_result:
-                        knowledge_result = self.get_geography_info(query)
-                
-                if knowledge_result:
-                    response = knowledge_result
-                else:
-                    # If both online search and knowledge base fail, provide a fallback message
-                    response = f"I'm sorry, I couldn't find information about '{query}'. Could you please rephrase your question or ask me about something else?"
+                    # If online search fails, try a more comprehensive check of all knowledge sources
+                    # This is a fallback for when the category might have been misidentified
+                    knowledge_sources = [
+                        ("science", self.get_science_info),
+                        ("math", self.get_math_info),
+                        ("history", self.get_history_info),
+                        ("geography", self.get_geography_info)
+                    ]
+                    
+                    for source_name, source_func in knowledge_sources:
+                        if source_name != category:  # Skip the one we already checked
+                            result = source_func(query)
+                            if result:
+                                response = result
+                                break
+                    
+                    # If we still don't have a response, provide a more helpful fallback message
+                    if not response:
+                        response = f"I'm sorry, I don't have specific information about '{query}'. Could you please rephrase your question or ask me about something else?"
         
         # Save to cache
         self.query_cache[query] = response
@@ -927,7 +971,7 @@ class SmartAssistant:
         self.conversation_memory.append(("assistant", response))
         if len(self.conversation_memory) > self.memory_limit:
             self.conversation_memory.pop(0)
-            
+        
         return response
         
     def run(self):
