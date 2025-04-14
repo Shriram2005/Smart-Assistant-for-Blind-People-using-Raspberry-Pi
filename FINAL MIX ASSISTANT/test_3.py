@@ -24,7 +24,7 @@ class SmartAssistant:
         self.knowledge_data = self.load_knowledge()
         
         # Setup image directory
-        self.image_dir = "/home/dsmansi/Final Assistant/Saved Images"
+        self.image_dir = "/home/pi/Final Assistant/Saved Images"
         os.makedirs(self.image_dir, exist_ok=True)
         self.last_image_path = ""
         self.last_extracted_text = ""
@@ -74,7 +74,7 @@ class SmartAssistant:
         """Load knowledge base from JSON file using absolute path"""
         try:
             # MODIFIED: Using absolute path to knowledge_data.json
-            with open("/home/dsmansi/Final Assistant/knowledge_data.json", "r") as f:
+            with open("/home/pi/Final Assistant/knowledge_data.json", "r") as f:
                 return json.load(f)
         except FileNotFoundError:
             print("Knowledge data file not found. Creating empty knowledge base.")
@@ -444,7 +444,7 @@ class SmartAssistant:
     
     def get_creator(self):
         """Info about creator"""
-        self.speak("I was created by D.S. Mansi at Sandip University.")
+        self.speak("I was created by Students at Sandip University.")
     
     def execute_command(self, command):
         """Process and execute voice commands with faster response"""
