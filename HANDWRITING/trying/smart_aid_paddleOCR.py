@@ -4,9 +4,7 @@ import pytesseract
 from googletrans import Translator
 from gtts import gTTS
 import os
-import RPi.GPIO as GPIO
 import time
-from picamera2 import Picamera2
 from PIL import Image
 import subprocess
 from langdetect import detect
@@ -16,6 +14,7 @@ from paddleocr import PaddleOCR
 import mysql.connector
 import mysql.connector.pooling
 import sys
+import tkinter as tk
 
 # Aiven MySQL Configuration
 MYSQL_CONFIG = {
@@ -27,7 +26,7 @@ MYSQL_CONFIG = {
     'pool_name': 'mypool',
     'pool_size': 5,
     'connect_timeout': 10,
-    'ssl_ca': '/home/pi/ca.pem'        # Path to Aiven CA certificate
+    'ssl_ca': os.path.join(os.path.expanduser('~'), 'ca.pem')  # Update path to CA certificate
 }
 
 # Create a connection pool
@@ -129,7 +128,10 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Configure Tesseract path and languages
-pytesseract.pytesseract.tesseract_cmd = r'/usr/bin/tesseract'
+if os.name == 'nt':  # Windows
+    pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+else:  # Linux/Mac
+    pytesseract.pytesseract.tesseract_cmd = r'/usr/bin/tesseract'
 
 # Language configurations
 SUPPORTED_LANGUAGES = {
@@ -137,11 +139,6 @@ SUPPORTED_LANGUAGES = {
     'hi': {'name': 'hindi', 'tesseract': 'hin', 'confidence_threshold': 0.25},
     'mr': {'name': 'marathi', 'tesseract': 'mar', 'confidence_threshold': 0.25}
 }
-
-# GPIO Configuration
-BUTTON_PIN = 18
-GPIO.setmode(GPIO.BCM)
-GPIO.setup(BUTTON_PIN, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
 
 # Audio file paths
 AUDIO_PATHS = {
@@ -163,6 +160,7 @@ translator = None
 audio_lock = Lock()
 current_language = None
 current_audio_process = None  # Add this to track current audio playback
+root = None  # Tkinter root window
 
 def initialize_system():
     """Initialize camera, translator and create feedback sounds."""
@@ -171,16 +169,27 @@ def initialize_system():
     try:
         # Check if required Tesseract language data is installed
         required_langs = [lang['tesseract'] for lang in SUPPORTED_LANGUAGES.values()]
-        installed_langs = pytesseract.get_languages()
+        try:
+            installed_langs = pytesseract.get_languages()
+            
+            missing_langs = [lang for lang in required_langs if lang not in installed_langs]
+            if missing_langs:
+                logger.error(f"Missing Tesseract language data for: {', '.join(missing_langs)}")
+                if os.name == 'nt':
+                    logger.error("Please install required language data from https://github.com/UB-Mannheim/tesseract/wiki")
+                else:
+                    logger.error("Please install required language data using:")
+                    logger.error(f"sudo apt-get install tesseract-ocr-{' tesseract-ocr-'.join(missing_langs)}")
+                return False
+        except Exception as e:
+            logger.warning(f"Could not verify Tesseract languages: {str(e)}")
         
-        missing_langs = [lang for lang in required_langs if lang not in installed_langs]
-        if missing_langs:
-            logger.error(f"Missing Tesseract language data for: {', '.join(missing_langs)}")
-            logger.error("Please install required language data using:")
-            logger.error(f"sudo apt-get install tesseract-ocr-{' tesseract-ocr-'.join(missing_langs)}")
+        # Initialize webcam (instead of PiCamera)
+        camera = cv2.VideoCapture(0)
+        if not camera.isOpened():
+            logger.error("Could not open webcam")
             return False
-        
-        camera = Picamera2()
+            
         translator = Translator()
         
         # Initialize audio feedback files
@@ -211,11 +220,17 @@ def play_audio(audio_path):
         try:
             # Kill any currently playing audio
             if current_audio_process and current_audio_process.poll() is None:
-                subprocess.run(['pkill', '-f', 'mpg123'], stderr=subprocess.DEVNULL)
+                if os.name == 'nt':  # Windows
+                    subprocess.run(['taskkill', '/F', '/IM', 'mpg123.exe'], stderr=subprocess.DEVNULL, shell=True)
+                else:  # Linux/Mac
+                    subprocess.run(['pkill', '-f', 'mpg123'], stderr=subprocess.DEVNULL)
                 current_audio_process = None
             
             # Start new audio playback
-            current_audio_process = subprocess.Popen(['mpg123', '-q', audio_path], stderr=subprocess.DEVNULL)
+            if os.name == 'nt':  # Windows
+                current_audio_process = subprocess.Popen(['start', '', audio_path], shell=True, stderr=subprocess.DEVNULL)
+            else:  # Linux/Mac
+                current_audio_process = subprocess.Popen(['mpg123', '-q', audio_path], stderr=subprocess.DEVNULL)
         except Exception as e:
             logger.error(f"Audio playback failed: {str(e)}")
             current_audio_process = None
@@ -369,21 +384,20 @@ def get_language_sequence(detected_lang):
     return sequences.get(detected_lang, ['original', 'english', 'hindi', 'marathi'])
 
 def capture_and_translate():
-    """Capture image and perform translation with proper error handling."""
+    """Capture image from webcam and perform translation with proper error handling."""
     global current_language
     logger.info("Starting capture and translate process")
     
     try:
-        # Configure and capture image
-        camera.stop()
-        config = camera.create_still_configuration(main={"size": (2592, 1944)})
-        camera.configure(config)
-        camera.start()
-        time.sleep(2)
-        
+        # Capture image from webcam
+        ret, frame = camera.read()
+        if not ret:
+            logger.error("Failed to capture image from webcam")
+            play_audio(AUDIO_PATHS['error'])
+            return False
+            
         image_path = "captured_image.jpg"
-        camera.capture_file(image_path)
-        camera.stop()
+        cv2.imwrite(image_path, frame)
         
         play_audio(AUDIO_PATHS['capture'])
         
@@ -461,7 +475,10 @@ def handle_button_press():
     try:
         # Stop any currently playing audio immediately
         if current_audio_process and current_audio_process.poll() is None:
-            subprocess.run(['pkill', '-f', 'mpg123'], stderr=subprocess.DEVNULL)
+            if os.name == 'nt':  # Windows
+                subprocess.run(['taskkill', '/F', '/IM', 'mpg123.exe'], stderr=subprocess.DEVNULL, shell=True)
+            else:  # Linux/Mac
+                subprocess.run(['pkill', '-f', 'mpg123'], stderr=subprocess.DEVNULL)
             current_audio_process = None
         
         if button_press_count == 0:
@@ -484,6 +501,55 @@ def handle_button_press():
         play_audio(AUDIO_PATHS['error'])
         button_press_count = 0
 
+def create_gui():
+    """Create a simple GUI with a button to replace physical button."""
+    global root
+    
+    root = tk.Tk()
+    root.title("Smart Aid System")
+    root.geometry("400x200")
+    
+    # Style the button
+    style_frame = tk.Frame(root, bg="#f0f0f0")
+    style_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
+    
+    # Create label
+    label = tk.Label(
+        style_frame, 
+        text="Press the button to capture image and translate text", 
+        font=("Arial", 12),
+        bg="#f0f0f0"
+    )
+    label.pack(pady=10)
+    
+    # Create button
+    button = tk.Button(
+        style_frame, 
+        text="Capture/Play Audio", 
+        command=handle_button_press,
+        bg="#4CAF50", 
+        fg="white",
+        font=("Arial", 14, "bold"),
+        relief=tk.RAISED,
+        width=20,
+        height=2
+    )
+    button.pack(pady=20)
+    
+    # Status label
+    status_label = tk.Label(
+        style_frame, 
+        text="Status: Ready", 
+        font=("Arial", 10),
+        bg="#f0f0f0"
+    )
+    status_label.pack(pady=10)
+    
+    # Key binding - spacebar can also trigger the button
+    root.bind("<space>", lambda event: handle_button_press())
+    
+    return root
+
 def main():
     """Main program loop with proper initialization and cleanup."""
     global current_audio_process
@@ -505,22 +571,21 @@ def main():
     play_audio(AUDIO_PATHS['ready'])
     
     try:
-        while True:
-            if GPIO.input(BUTTON_PIN) == GPIO.HIGH:
-                handle_button_press()
-                time.sleep(0.5)
+        # Create and start GUI
+        gui = create_gui()
+        gui.mainloop()
     except KeyboardInterrupt:
         logger.info("Program stopped by user")
-        if current_audio_process:
-            subprocess.run(['pkill', '-f', 'mpg123'], stderr=subprocess.DEVNULL)
     except Exception as e:
         logger.error(f"Unexpected error: {str(e)}")
     finally:
         if current_audio_process:
-            subprocess.run(['pkill', '-f', 'mpg123'], stderr=subprocess.DEVNULL)
+            if os.name == 'nt':  # Windows
+                subprocess.run(['taskkill', '/F', '/IM', 'mpg123.exe'], stderr=subprocess.DEVNULL, shell=True)
+            else:  # Linux/Mac
+                subprocess.run(['pkill', '-f', 'mpg123'], stderr=subprocess.DEVNULL)
         if camera:
-            camera.stop()
-        GPIO.cleanup()
+            camera.release()
         logger.info("System shutdown complete")
 
 if __name__ == "__main__":

@@ -1,0 +1,300 @@
+{
+    "science": {
+        "periodic table": {
+            "definition": "The periodic table organizes chemical elements based on their atomic number, electron configuration, and chemical properties.",
+            "groups": {
+                "alkali metals": "Group 1 elements, highly reactive, including lithium (Li), sodium (Na), potassium (K), rubidium (Rb), cesium (Cs), and francium (Fr).",
+                "alkaline earth metals": "Group 2 elements, reactive but less so than alkali metals, including beryllium (Be), magnesium (Mg), calcium (Ca), strontium (Sr), barium (Ba), and radium (Ra).",
+                "transition metals": "Groups 3-12, characterized by metallic properties and multiple oxidation states, including iron (Fe), copper (Cu), and gold (Au).",
+                "halogens": "Group 17, highly reactive nonmetals including fluorine (F), chlorine (Cl), bromine (Br), iodine (I), and astatine (At).",
+                "noble gases": "Group 18, inert gases that are chemically stable, including helium (He), neon (Ne), argon (Ar), krypton (Kr), xenon (Xe), and radon (Rn).",
+                "lanthanides": "Rare earth metals from atomic numbers 57-71, including lanthanum (La), cerium (Ce), and neodymium (Nd).",
+                "actinides": "Radioactive elements from atomic numbers 89-103, including uranium (U), plutonium (Pu), and thorium (Th)."
+            },
+            "periods": "The periodic table is arranged in 7 horizontal periods that represent energy levels of electrons.",
+            "atomic number": "The atomic number of an element represents the number of protons in its nucleus.",
+            "atomic mass": "Atomic mass is the average mass of an element's isotopes, measured in atomic mass units (amu).",
+            "isotopes": "Isotopes are atoms of the same element with different numbers of neutrons but the same number of protons.",
+            "electronegativity": "Electronegativity is the ability of an atom to attract electrons in a chemical bond; fluorine (F) has the highest electronegativity.",
+            "ionization energy": "Ionization energy is the energy required to remove an electron from an atom.",
+            "metallic and non-metallic properties": "Metals are generally conductive, malleable, and ductile, while nonmetals are brittle and poor conductors."
+        },
+        "basic physics": {
+            "newton's laws": "Newton's three laws describe motion and force, including inertia, acceleration, and action-reaction.",
+            "energy": "Energy is the capacity to do work and exists in many forms such as kinetic, potential, thermal, and chemical.",
+            "speed and velocity": "Speed is the rate of movement, while velocity is speed in a specific direction.",
+            "force": "A force is a push or pull that can cause an object to accelerate, decelerate, or change direction.",
+            "momentum": "Momentum is the product of an object's mass and velocity, representing the quantity of motion."
+        },
+        "basic chemistry": {
+            "atoms and molecules": "Atoms are the basic units of matter, while molecules are combinations of two or more atoms.",
+            "states of matter": "Matter exists in solid, liquid, gas, and plasma states, depending on temperature and pressure.",
+            "chemical reactions": "A chemical reaction occurs when substances combine or break apart to form new substances.",
+            "acids and bases": "Acids release hydrogen ions in solution, while bases release hydroxide ions.",
+            "oxidation and reduction": "Oxidation involves losing electrons, while reduction involves gaining electrons."
+        },
+        "basic biology": {
+            "cells": "Cells are the basic structural and functional units of life, classified as prokaryotic or eukaryotic.",
+            "organ systems": "The human body consists of organ systems such as circulatory, respiratory, digestive, nervous, and skeletal systems.",
+            "genetics": "Genetics is the study of heredity, genes, and DNA inheritance patterns.",
+            "microorganisms": "Microorganisms include bacteria, viruses, fungi, and protists, some of which cause diseases.",
+            "enzymes": "Enzymes are biological catalysts that speed up chemical reactions in the body."
+        },
+        "basic astronomy": {
+            "solar system": "The Solar System consists of the Sun, eight planets, moons, asteroids, and comets.",
+            "galaxies": "Galaxies are vast systems of stars, gas, and dust bound by gravity. The Milky Way is our home galaxy.",
+            "big bang theory": "The Big Bang Theory explains the origin of the universe, stating it began as a singularity and expanded rapidly.",
+            "light years": "A light-year is the distance light travels in one year, approximately 9.46 trillion kilometers.",
+            "nebulae": "Nebulae are giant clouds of gas and dust in space, where new stars are born."
+        },
+        "earth sciences": {
+            "rock cycle": "The rock cycle explains how rocks transform between igneous, sedimentary, and metamorphic forms.",
+            "plate tectonics": "Plate tectonics describes the movement of Earth's lithospheric plates, causing earthquakes, mountains, and volcanoes.",
+            "volcanoes": "Volcanoes are openings in Earth's crust where magma, ash, and gases erupt.",
+            "earthquakes": "Earthquakes occur when Earth's tectonic plates move, releasing energy in the form of seismic waves.",
+            "ocean currents": "Ocean currents are large-scale water movements driven by wind, temperature, and salinity differences."
+        },
+        "human body": {
+            "respiratory system": "The respiratory system allows breathing, bringing oxygen into the body and expelling carbon dioxide.",
+            "circulatory system": "The circulatory system consists of the heart, blood, and blood vessels, transporting oxygen and nutrients.",
+            "digestive system": "The digestive system breaks down food into nutrients that the body can absorb and use for energy.",
+            "immune system": "The immune system defends the body against pathogens using white blood cells and antibodies.",
+            "nervous system": "The nervous system controls bodily functions through neurons and the brain, including sensory perception and movement."
+        },
+        "technology and innovation": {
+            "electricity": "Electricity is the flow of electric charge, powering devices and lighting up homes.",
+            "magnetism": "Magnetism is the force exerted by magnets, attracting or repelling certain metals.",
+            "renewable energy": "Renewable energy comes from sources like solar, wind, hydro, and geothermal power, reducing environmental impact.",
+            "nuclear energy": "Nuclear energy is produced from nuclear reactions, used for power generation and medicine.",
+            "space exploration": "Space exploration includes studying celestial bodies and launching satellites, space probes, and astronauts into space."
+        }
+    },
+    "math": {
+        "pi": "Pi is approximately equal to 3.14159, representing the ratio of a circle's circumference to its diameter.",
+        "fibonacci": "The Fibonacci sequence starts with 0 and 1, and each subsequent number is the sum of the previous two.",
+        "pythagoras theorem": "In a right triangle, the square of the hypotenuse equals the sum of squares of the other two sides, expressed as a² + b² = c².",
+        "quadratic formula": "The quadratic formula is used to solve equations in the form ax² + bx + c = 0, and is given by x = (-b ± √(b² - 4ac)) / 2a.",
+        "calculus": "Calculus is the mathematical study of continuous change, with two major branches: differential calculus and integral calculus.",
+        "trigonometry": "Trigonometry is the branch of mathematics dealing with relationships between the sides and angles of triangles, particularly the sine, cosine, and tangent functions.",
+        "logarithm": "A logarithm is the inverse operation to exponentiation, answering the question: to what power must a given number be raised to produce another number?",
+        "euler's identity": "Euler's identity, e^(iπ) + 1 = 0, is considered one of the most beautiful equations in mathematics, linking five fundamental mathematical constants.",
+        "statistics": "Statistics is the discipline that concerns the collection, organization, analysis, interpretation, and presentation of data.",
+        "probability": "Probability is the branch of mathematics concerning numerical descriptions of how likely an event is to occur, or how likely a proposition is to be true.",
+        
+        "basic calculations": {
+            "addition": "Addition is combining two or more numbers to get a total sum.",
+            "subtraction": "Subtraction is finding the difference between two numbers.",
+            "multiplication": "Multiplication is repeated addition of a number.",
+            "division": "Division is splitting a number into equal parts.",
+            "modulus": "Modulus is the remainder when one number is divided by another.",
+            "percentage": "Percentage is a fraction expressed as a number out of 100.",
+            "average": "Average is the sum of values divided by the number of values."
+        },
+
+        "tables": {
+            "table_2": "2x1=2, 2x2=4, 2x3=6, 2x4=8, 2x5=10, 2x6=12, 2x7=14, 2x8=16, 2x9=18, 2x10=20",
+            "table_3": "3x1=3, 3x2=6, 3x3=9, 3x4=12, 3x5=15, 3x6=18, 3x7=21, 3x8=24, 3x9=27, 3x10=30",
+            "table_4": "4x1=4, 4x2=8, 4x3=12, 4x4=16, 4x5=20, 4x6=24, 4x7=28, 4x8=32, 4x9=36, 4x10=40",
+            "table_5": "5x1=5, 5x2=10, 5x3=15, 5x4=20, 5x5=25, 5x6=30, 5x7=35, 5x8=40, 5x9=45, 5x10=50",
+            "table_10": "10x1=10, 10x2=20, 10x3=30, 10x4=40, 10x5=50, 10x6=60, 10x7=70, 10x8=80, 10x9=90, 10x10=100"
+        },
+
+        "square_numbers": {
+            "square_1": 1,
+            "square_2": 4,
+            "square_3": 9,
+            "square_4": 16,
+            "square_5": 25,
+            "square_6": 36,
+            "square_7": 49,
+            "square_8": 64,
+            "square_9": 81,
+            "square_10": 100,
+            "square_11": 121,
+            "square_12": 144,
+            "square_13": 169,
+            "square_14": 196,
+            "square_15": 225
+        },
+
+        "cube_numbers": {
+            "cube_1": 1,
+            "cube_2": 8,
+            "cube_3": 27,
+            "cube_4": 64,
+            "cube_5": 125,
+            "cube_6": 216,
+            "cube_7": 343,
+            "cube_8": 512,
+            "cube_9": 729,
+            "cube_10": 1000,
+            "cube_11": 1331,
+            "cube_12": 1728,
+            "cube_13": 2197,
+            "cube_14": 2744,
+            "cube_15": 3375
+        },
+
+        "square_roots": {
+            "sqrt_1": 1.0,
+            "sqrt_2": 1.414,
+            "sqrt_3": 1.732,
+            "sqrt_4": 2.0,
+            "sqrt_5": 2.236,
+            "sqrt_6": 2.449,
+            "sqrt_7": 2.646,
+            "sqrt_8": 2.828,
+            "sqrt_9": 3.0,
+            "sqrt_10": 3.162,
+            "sqrt_11": 3.317,
+            "sqrt_12": 3.464,
+            "sqrt_13": 3.606,
+            "sqrt_14": 3.742,
+            "sqrt_15": 3.873
+        },
+
+        "cube_roots": {
+            "cbrt_1": 1.0,
+            "cbrt_2": 1.26,
+            "cbrt_3": 1.442,
+            "cbrt_4": 1.587,
+            "cbrt_5": 1.710,
+            "cbrt_6": 1.817,
+            "cbrt_7": 1.913,
+            "cbrt_8": 2.0,
+            "cbrt_9": 2.08,
+            "cbrt_10": 2.154,
+            "cbrt_11": 2.224,
+            "cbrt_12": 2.289,
+            "cbrt_13": 2.351,
+            "cbrt_14": 2.410,
+            "cbrt_15": 2.466
+        },
+
+        "fractions": {
+            "half": "1/2 is equal to 0.5",
+            "third": "1/3 is equal to 0.333",
+            "fourth": "1/4 is equal to 0.25",
+            "fifth": "1/5 is equal to 0.2",
+            "sixth": "1/6 is equal to 0.166",
+            "seventh": "1/7 is approximately 0.142",
+            "eighth": "1/8 is equal to 0.125",
+            "ninth": "1/9 is approximately 0.111",
+            "tenth": "1/10 is equal to 0.1"
+        },
+
+        "units_conversion": {
+            "meters_to_kilometers": "1 kilometer = 1000 meters",
+            "centimeters_to_meters": "1 meter = 100 centimeters",
+            "grams_to_kilograms": "1 kilogram = 1000 grams",
+            "seconds_to_minutes": "1 minute = 60 seconds",
+            "minutes_to_hours": "1 hour = 60 minutes"
+        }
+    },
+    "history": {
+        "world war 2": "World War II lasted from 1939 to 1945, involving most nations, including all great powers, forming opposing military alliances: the Allies and the Axis.",
+        "french revolution": "The French Revolution was a period of radical social and political upheaval in France from 1789 to 1799.",
+        "ancient egypt": "Ancient Egyptian civilization thrived along the Nile River from about 3100 BC to 332 BC, known for its pyramids, pharaohs, and hieroglyphics.",
+        "roman empire": "The Roman Empire was the post-Republican period of ancient Rome, characterized by an autocratic form of government lasting from 27 BC to 476 AD in the West.",
+        "renaissance": "The Renaissance was a period of European cultural, artistic, political, and scientific rebirth following the Middle Ages, spanning the 14th to 17th centuries.",
+        "industrial revolution": "The Industrial Revolution was the transition to new manufacturing processes in Europe and the United States from about 1760 to 1840.",
+        "cold war": "The Cold War was a period of geopolitical tension between the United States and the Soviet Union and their allies from 1945 to 1991.",
+        "american revolution": "The American Revolution was a colonial revolt that occurred between 1765 and 1783, establishing the United States of America.",
+        "civil rights movement": "The Civil Rights Movement was a struggle for social justice that took place mainly during the 1950s and 1960s for Black Americans to gain equal rights.",
+        "ancient greece": "Ancient Greece was a civilization belonging to a period of Greek history that flourished from the 8th to 6th centuries BC to the end of antiquity.",
+        "world war 1": "World War I was a global conflict that lasted from 1914 to 1918, originating in Europe and resulting in an estimated 9 million combatant deaths.",
+        "colonialism": "Colonialism is the policy of a country seeking to extend or retain its authority over other peoples or territories, generally with the aim of economic dominance.",
+        "mesopotamia": "Mesopotamia was a historical region situated within the Tigris–Euphrates river system, in modern days roughly corresponding to Iraq and parts of Syria, Turkey, and Iran.",
+        "byzantine empire": "The Byzantine Empire was the continuation of the Roman Empire in its eastern provinces, lasting from 330 AD to 1453 AD.",
+        "mongol empire": "The Mongol Empire, founded by Genghis Khan in 1206, became the largest contiguous land empire in history.",
+        "ottoman empire": "The Ottoman Empire was a powerful Islamic empire that lasted from 1299 to 1922, controlling large parts of Europe, Asia, and Africa.",
+        "middle ages": "The Middle Ages, or medieval period, lasted from the 5th to the 15th century, marked by feudalism, knights, and the spread of Christianity in Europe.",
+        "great depression": "The Great Depression was a severe global economic crisis that started in 1929 and lasted through the 1930s, marked by widespread unemployment and poverty.",
+        "vietnam war": "The Vietnam War (1955-1975) was a conflict in Vietnam, Laos, and Cambodia, with North Vietnam (communist) fighting against South Vietnam and its U.S. allies.",
+        "scientific revolution": "The Scientific Revolution (16th-18th centuries) was a period of major scientific advancements that laid the foundation for modern science.",
+        "american civil war": "The American Civil War (1861-1865) was a conflict between the Northern states (Union) and the Southern states (Confederacy) over slavery and state rights.",
+        "persian empire": "The Persian Empire, founded by Cyrus the Great in 550 BC, was one of the largest and most influential empires in history.",
+        "trojan war": "The Trojan War, described in Greek mythology and Homer's epic poems, was fought between the Greeks and the city of Troy around the 12th century BC.",
+        "crusades": "The Crusades (1096-1291) were a series of religious wars between Christians and Muslims over control of the Holy Land.",
+        "fall of constantinople": "The Fall of Constantinople in 1453 marked the end of the Byzantine Empire and the rise of the Ottoman Empire.",
+        "napoleonic wars": "The Napoleonic Wars (1803-1815) were a series of wars led by Napoleon Bonaparte, reshaping Europe's political landscape.",
+        "black death": "The Black Death (1347-1351) was a devastating global epidemic of the bubonic plague that killed millions in Europe and Asia."
+    },
+    "history_questions": [
+        "What year did World War II begin?",
+        "Who was the leader of the Soviet Union during World War II?",
+        "What was the main cause of the French Revolution?",
+        "Which ancient civilization built the pyramids?",
+        "Who was the first emperor of the Roman Empire?",
+        "What was the Renaissance a rebirth of?",
+        "Which country was the first to industrialize?",
+        "What two countries were the main rivals during the Cold War?",
+        "Who wrote the Declaration of Independence?",
+        "What was the purpose of the Civil Rights Movement?",
+        "Which war was fought between the North and the South in the United States?",
+        "What was the name of the Mongol leader who created the largest contiguous empire?",
+        "Which event marked the end of the Middle Ages?",
+        "What year did the Great Depression start?",
+        "Which two countries were involved in the Vietnam War?",
+        "What invention revolutionized printing in the 15th century?",
+        "Which empire was ruled by Cyrus the Great?",
+        "What war took place between Greece and Troy?",
+        "Who led the French during the Napoleonic Wars?",
+        "What was the deadliest pandemic in history?"
+    ],
+    "geography": {
+        "continents": "There are seven continents: Africa, Antarctica, Asia, Australia, Europe, North America, and South America.",
+        "oceans": "The five oceans are the Pacific, Atlantic, Indian, Southern, and Arctic Ocean.",
+        "mount everest": "Mount Everest is Earth's highest mountain above sea level, located in the Mahalangur Himal sub-range of the Himalayas.",
+        "amazon rainforest": "The Amazon Rainforest is the world's largest tropical rainforest, covering much of northwestern Brazil and extending into Colombia, Peru, and other South American countries.",
+        "sahara desert": "The Sahara is the largest hot desert in the world, covering most of North Africa.",
+        "great barrier reef": "The Great Barrier Reef is the world's largest coral reef system, located off the coast of Queensland, Australia.",
+        "nile river": "The Nile is the longest river in Africa and has historically been considered the longest river in the world.",
+        "grand canyon": "The Grand Canyon is a steep-sided canyon carved by the Colorado River in Arizona, United States.",
+        "himalayas": "The Himalayas are a mountain range in Asia separating the plains of the Indian subcontinent from the Tibetan Plateau.",
+        "capital cities": "Some notable capital cities include Washington D.C. (USA), London (UK), Beijing (China), Moscow (Russia), Tokyo (Japan), and Paris (France).",
+        "countries": "There are 195 countries in the world, including 193 member states of the United Nations plus the Holy See and the State of Palestine.",
+        "plate tectonics": "Plate tectonics is the theory that Earth's outer shell is divided into several plates that glide over the mantle, the rocky inner layer above the core.",
+        "population": "The world population was approximately 8 billion people as of 2023, with China and India being the most populous countries.",
+        "india states and capitals": {
+            "Andhra Pradesh": { "capital": "Amaravati", "description": "Located in southeastern India, known for its Telugu culture, temples, and rich agricultural lands." },
+            "Arunachal Pradesh": { "capital": "Itanagar", "description": "Northeastern state known for its stunning mountain ranges and diverse tribal culture." },
+            "Assam": { "capital": "Dispur", "description": "Famous for Assam tea, the Kaziranga National Park, and the Brahmaputra River." },
+            "Bihar": { "capital": "Patna", "description": "A historic state in eastern India, known for Nalanda University and Buddhist pilgrimage sites." },
+            "Chhattisgarh": { "capital": "Raipur", "description": "Known for its forests, waterfalls, and tribal culture." },
+            "Goa": { "capital": "Panaji", "description": "A popular tourist destination known for its beaches, Portuguese heritage, and nightlife." },
+            "Gujarat": { "capital": "Gandhinagar", "description": "Known for Gir National Park (home to Asiatic lions), the Rann of Kutch, and its industrial development." },
+            "Haryana": { "capital": "Chandigarh", "description": "A leading agricultural state, home to important historical sites and modern infrastructure." },
+            "Himachal Pradesh": { "capital": "Shimla", "description": "A beautiful hill state famous for its scenic mountains, tourism, and apple orchards." },
+            "Jharkhand": { "capital": "Ranchi", "description": "Rich in minerals, forests, and waterfalls." },
+            "Karnataka": { "capital": "Bengaluru", "description": "Known as India's IT hub, home to historic sites like Hampi and modern industries." },
+            "Kerala": { "capital": "Thiruvananthapuram", "description": "Famous for its backwaters, ayurvedic treatments, and high literacy rate." },
+            "Madhya Pradesh": { "capital": "Bhopal", "description": "Central India's largest state, known for historical monuments and wildlife sanctuaries." },
+            "Maharashtra": { "capital": "Mumbai", "description": "Home to India's financial capital, Bollywood, and the historic Ajanta and Ellora caves." },
+            "Manipur": { "capital": "Imphal", "description": "Known for its rich culture, Loktak Lake, and sports talents." },
+            "Meghalaya": { "capital": "Shillong", "description": "A northeastern state known for its hills, waterfalls, and unique matrilineal society." },
+            "Mizoram": { "capital": "Aizawl", "description": "A scenic hilly state known for its tribal culture and handicrafts." },
+            "Nagaland": { "capital": "Kohima", "description": "Known for its diverse tribal communities and the Hornbill Festival." },
+            "Odisha": { "capital": "Bhubaneswar", "description": "Famous for Jagannath Temple, ancient rock-cut caves, and beautiful beaches." },
+            "Punjab": { "capital": "Chandigarh", "description": "The land of five rivers, famous for Golden Temple and vibrant Sikh culture." },
+            "Rajasthan": { "capital": "Jaipur", "description": "The largest Indian state, famous for its deserts, palaces, and forts." },
+            "Sikkim": { "capital": "Gangtok", "description": "A small Himalayan state known for its biodiversity and beautiful monasteries." },
+            "Tamil Nadu": { "capital": "Chennai", "description": "A cultural hub of South India, famous for its temples, beaches, and classical arts." },
+            "Telangana": { "capital": "Hyderabad", "description": "Known for its IT industry, Charminar, and rich history." },
+            "Tripura": { "capital": "Agartala", "description": "A small state in the northeast, rich in tribal culture and biodiversity." },
+            "Uttar Pradesh": { "capital": "Lucknow", "description": "India's most populous state, home to Taj Mahal and Varanasi." },
+            "Uttarakhand": { "capital": "Dehradun", "description": "Known for its scenic hill stations and pilgrimage sites." },
+            "West Bengal": { "capital": "Kolkata", "description": "Famous for its cultural heritage, Howrah Bridge, and Durga Puja." }
+        },
+        "india union territories": {
+            "Andaman and Nicobar Islands": { "capital": "Port Blair", "description": "A group of islands known for their pristine beaches and marine biodiversity." },
+            "Chandigarh": { "capital": "Chandigarh", "description": "A well-planned city that serves as the capital of both Punjab and Haryana." },
+            "Dadra and Nagar Haveli and Daman and Diu": { "capital": "Daman", "description": "A union territory known for its beaches and Portuguese heritage." },
+            "Lakshadweep": { "capital": "Kavaratti", "description": "A group of coral atolls and islands, known for their scenic beauty." },
+            "Delhi": { "capital": "New Delhi", "description": "The capital of India, a historical and political center with landmarks like India Gate and Red Fort." },
+            "Puducherry": { "capital": "Puducherry", "description": "A former French colony known for its unique blend of French and Tamil culture." },
+            "Jammu and Kashmir": { "capital": "Srinagar (summer), Jammu (winter)", "description": "A beautiful region known for its mountains, valleys, and rich cultural history." },
+            "Ladakh": { "capital": "Leh", "description": "A high-altitude desert region known for its stunning landscapes and Buddhist monasteries." }
+        }
+    }
+}
