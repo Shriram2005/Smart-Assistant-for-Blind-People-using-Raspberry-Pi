@@ -154,7 +154,7 @@ class SmartAssistant:
                         'border', 'territory', 'climate', 'landform', 'landscape', 'region', 'hemisphere',
                         'equator', 'tropics', 'arctic', 'antarctic', 'latitude', 'longitude', 'india'],
             # New OCR-related categories
-            'capture': ['capture text', 'take picture', 'read this', 'scan text', 'extract text', 'ocr', 'take a photo'],
+            'capture': ['capture text', 'take picture', 'read this', 'scan text', 'extract text', 'ocr', 'take a photo', 'capture image'],
             'translate': ['translate text', 'translate to', 'translate in', 'convert to', 'say in'],
             'play_original': ['play original', 'original language', 'source language'],
             'play_english': ['play english', 'english translation', 'translate english', 'read in english'],
@@ -241,8 +241,8 @@ class SmartAssistant:
                     subprocess.run(['pkill', '-f', 'mpg123'], stderr=subprocess.DEVNULL)
                     self.current_audio_process = None
                 
-                # Start new audio playback
-                self.current_audio_process = subprocess.Popen(['mpg123', '-q', audio_path], stderr=subprocess.DEVNULL)
+                # Start new audio playback using subprocess.run
+                subprocess.run(['mpg123', '-q', audio_path], stderr=subprocess.DEVNULL)
             except Exception as e:
                 logger.error(f"Audio playback failed: {str(e)}")
                 self.current_audio_process = None
@@ -419,9 +419,17 @@ class SmartAssistant:
                 
                 self.play_audio(AUDIO_PATHS['complete'])
                 
-                # Tell the user what we found and available translations
+                # Tell the user what we found and immediately play the original text
                 source_lang_name = SUPPORTED_LANGUAGES[detected_lang]['name'].capitalize()
-                self.speak(f"I found {source_lang_name} text in the image. Say 'play original' to hear it, or ask for a specific translation like 'translate to Hindi'.")
+                self.speak(f"I found {source_lang_name} text in the image. Here's what it says:")
+                
+                # Immediately play the original text
+                time.sleep(1)  # Short pause
+                self.play_audio(AUDIO_PATHS['original'])
+                
+                # Inform about translation options
+                time.sleep(1)  # Give time for the original audio to finish
+                self.speak(f"You can ask for translations by saying 'translate to Hindi' or similar.")
                 
                 return True
             else:
@@ -546,8 +554,8 @@ class SmartAssistant:
                     subprocess.run(['pkill', '-f', 'mpg123'], stderr=subprocess.DEVNULL)
                     self.current_audio_process = None
                     
-                # Play the new audio
-                self.current_audio_process = subprocess.Popen(["mpg123", "-q", speech_file], check=False)
+                # Play the new audio using subprocess.run
+                subprocess.run(["mpg123", "-q", speech_file])
             
             # Clean up the temporary file - optional, can be kept for debugging
             try:
@@ -781,17 +789,28 @@ class SmartAssistant:
         assistant_names = [self.name.lower(), "assistant"]
         is_addressed = any(name in query.lower() for name in assistant_names)
         
+        # Direct time/date handling - highest priority
+        query_lower = query.lower()
+        
+        # Time queries
+        if any(phrase in query_lower for phrase in ["what time", "current time", "time now", "what's the time"]):
+            return self.get_current_time()
+            
+        # Date queries
+        if any(phrase in query_lower for phrase in ["what date", "current date", "date today", "what's the date", "what day", "day today", "what's today"]):
+            return self.get_current_date()
+        
         # Check if it's a goodbye intent
-        if any(word in query.lower() for word in self.categories['goodbye']):
+        if any(word in query_lower for word in self.categories['goodbye']):
             self.is_active = False
             return "Goodbye! Have a great day."
         
         # Basic greeting
-        if any(word in query.lower() for word in self.categories['greeting']):
+        if any(word in query_lower for word in self.categories['greeting']):
             return f"Hello! How can I help you today?"
         
         # About the assistant
-        if any(phrase in query.lower() for phrase in self.categories['about']):
+        if any(phrase in query_lower for phrase in self.categories['about']):
             return f"I'm {self.name}, a smart assistant designed to help answer your questions and recognize text from images. I can capture and translate text, tell you the time, date, weather, news, and information from Wikipedia, among other things. Just ask me a question or say 'capture text' to use OCR."
         
         # Handle straightforward service categories first
