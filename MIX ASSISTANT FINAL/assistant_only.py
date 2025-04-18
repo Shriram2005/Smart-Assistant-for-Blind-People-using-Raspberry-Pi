@@ -5,12 +5,13 @@ import threading
 import time
 import webbrowser
 import json
+import tempfile
+import subprocess
 from collections import defaultdict
 
 import nltk
 import numpy as np
 import pygame
-import pyttsx3
 import requests
 import speech_recognition as sr
 from bs4 import BeautifulSoup
@@ -21,14 +22,17 @@ from sklearn.metrics.pairwise import cosine_similarity
 import mysql.connector
 from mysql.connector import pooling
 import wikipedia
+from gtts import gTTS
 
 # Download necessary NLTK data
 try:
     nltk.data.find('tokenizers/punkt')
     nltk.data.find('corpora/stopwords')
 except LookupError:
+    print("Downloading required NLTK resources...")
     nltk.download('punkt')
     nltk.download('stopwords')
+    
 
 # Aiven MySQL Configuration
 MYSQL_CONFIG = {
@@ -46,12 +50,9 @@ class SmartAssistant:
         self.recognizer = sr.Recognizer()
         self.microphone = sr.Microphone()
         
-        # Initialize text-to-speech engine
-        self.engine = pyttsx3.init()
-        voices = self.engine.getProperty('voices')
-        if voices and len(voices) > voice_index:
-            self.engine.setProperty('voice', voices[voice_index].id)
-        self.engine.setProperty('rate', 175)  # Speed of speech
+        # Initialize speech settings - using mpg123 instead of pyttsx3
+        self.speech_rate = "normal"  # Normal speech rate
+        self.temp_dir = tempfile.gettempdir()
         
         # Initialize speech recognition settings
         with self.microphone as source:
@@ -750,10 +751,30 @@ class SmartAssistant:
         return None
 
     def speak(self, text):
-        """Convert text to speech"""
+        """Convert text to speech using gTTS and mpg123 player"""
         print(f"{self.name}: {text}")
-        self.engine.say(text)
-        self.engine.runAndWait()
+        
+        try:
+            # Create a temporary file for the speech audio
+            speech_file = os.path.join(self.temp_dir, "assistant_speech.mp3")
+            
+            # Generate speech using gTTS
+            tts = gTTS(text=text, lang='en', slow=False)
+            tts.save(speech_file)
+            
+            # Play the speech file using mpg123 (better for Raspberry Pi)
+            subprocess.run(["mpg123", "-q", speech_file], check=False)
+            
+            # Clean up the temporary file - optional, can be kept for debugging
+            try:
+                os.remove(speech_file)
+            except:
+                pass
+                
+        except Exception as e:
+            print(f"Speech error: {e}")
+            # Fall back to just printing if speech fails
+            print(f"{self.name}: {text}")
     
     def listen(self):
         """Listen for voice input and convert to text"""
@@ -1279,8 +1300,7 @@ class SmartAssistant:
             self.speak("Shutting down. Goodbye!")
         finally:
             # Clean up resources
-            if hasattr(self, 'engine'):
-                self.engine.stop()
+            pass  # No engine to stop when using mpg123
 
 # Main execution
 if __name__ == "__main__":
