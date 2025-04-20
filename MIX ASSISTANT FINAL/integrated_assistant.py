@@ -159,7 +159,9 @@ class SmartAssistant:
             'play_original': ['play original', 'original language', 'source language'],
             'play_english': ['play english', 'english translation', 'translate english', 'read in english'],
             'play_hindi': ['play hindi', 'hindi translation', 'translate hindi', 'read in hindi'],
-            'play_marathi': ['play marathi', 'marathi translation', 'translate marathi', 'read in marathi']
+            'play_marathi': ['play marathi', 'marathi translation', 'translate marathi', 'read in marathi'],
+            # Stop commands
+            'stop': ['stop', 'interrupt', 'be quiet', 'shut up', 'silence', 'pause', 'hold on']
         }
         
         # Animation and sounds for feedback
@@ -179,6 +181,14 @@ class SmartAssistant:
         self.last_captured_text = ""
         self.last_translated_text = {}
         
+        # Flag to track if the assistant should stop speaking
+        self.stop_speaking = False
+        
+        # Create a stop sound
+        self.stop_sound_file = os.path.join(self.temp_dir, "stop_sound.mp3")
+        stop_tts = gTTS(text="Stopped", lang='en', slow=False)
+        stop_tts.save(self.stop_sound_file)
+        
         # Initialize OCR components
         self.initialize_ocr_system()
         
@@ -193,7 +203,7 @@ class SmartAssistant:
         self.memory_limit = 10
         
         # Start with a greeting
-        self.speak(f"Hello, I'm {self.name}, your smart assistant. I can answer questions and also read and translate text from images. Say 'capture text' to use the OCR feature. How can I help you today?") 
+        self.speak(f"Hello, I'm {self.name}, your smart assistant. I can answer questions and also read and translate text from images. Say 'capture text' to use the OCR feature. How can I help you today?")
 
     def initialize_ocr_system(self):
         """Initialize camera, translator and create feedback sounds."""
@@ -272,19 +282,26 @@ class SmartAssistant:
             return gray
     
     def preprocess_image(self, image_path):
-        """Preprocess image with multiple enhancement techniques."""
+        """Optimized image preprocessing for faster OCR."""
         try:
             # Read image
             image = cv2.imread(image_path)
             if image is None:
                 raise ValueError("Failed to read image")
             
-            # Basic enhancement
-            enhanced = self.enhance_image(image)
+            # Convert to grayscale for faster processing
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            
+            # Use a faster, more lightweight processing approach
+            # Instead of bilateral filter (slow), use Gaussian blur
+            blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+            
+            # Use simple binary thresholding instead of adaptive for speed
+            _, thresh = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
             
             # Save preprocessed image
             preprocessed_path = "preprocessed_image.jpg"
-            cv2.imwrite(preprocessed_path, enhanced)
+            cv2.imwrite(preprocessed_path, thresh)
             
             return preprocessed_path
         except Exception as e:
@@ -292,46 +309,85 @@ class SmartAssistant:
             return image_path
     
     def extract_text(self, image_path):
-        """Extract text using multiple OCR configurations and languages."""
+        """Extract text using optimized OCR configurations and languages to reduce processing time."""
+        # Reduced set of OCR configs for faster processing
         ocr_configs = [
-            '--oem 3 --psm 3',  # Default
-            '--oem 3 --psm 1',  # Automatic page segmentation
-            '--oem 3 --psm 4',  # Assume single column of text
-            '--oem 3 --psm 6'   # Assume uniform block of text
+            '--oem 3 --psm 3',  # Default - best for most cases
+            '--oem 3 --psm 6'   # Assume uniform block of text - for simple layouts
         ]
         
         best_results = {lang_code: {'text': '', 'confidence': 0} 
                        for lang_code in SUPPORTED_LANGUAGES.keys()}
         
-        for lang_code, lang_info in SUPPORTED_LANGUAGES.items():
+        # Use threading to process languages in parallel
+        threads = []
+        results_lock = threading.Lock()
+        
+        def process_language(lang_code, lang_info):
             tesseract_lang = lang_info['tesseract']
             confidence_threshold = lang_info['confidence_threshold']
             
-            for config in ocr_configs:
-                try:
-                    # Add language-specific configuration
-                    full_config = f"{config} -l {tesseract_lang}"
+            # Try only the first (most reliable) config first
+            try:
+                full_config = f"{ocr_configs[0]} -l {tesseract_lang}"
+                
+                text = pytesseract.image_to_string(
+                    Image.open(image_path),
+                    config=full_config
+                ).strip()
+                
+                # Calculate confidence score
+                if text and len(text) > 5:
+                    # For non-Latin scripts, adjust confidence calculation
+                    if lang_code in ['hi', 'mr']:
+                        # Count non-space characters instead of alphanumeric
+                        confidence = len([c for c in text if not c.isspace()]) / len(text)
+                    else:
+                        confidence = len([c for c in text if c.isalnum()]) / len(text)
                     
-                    text = pytesseract.image_to_string(
-                        Image.open(image_path),
-                        config=full_config
-                    ).strip()
-                    
-                    # Calculate confidence score
-                    if text:
-                        # For non-Latin scripts, adjust confidence calculation
-                        if lang_code in ['hi', 'mr']:
-                            # Count non-space characters instead of alphanumeric
-                            confidence = len([c for c in text if not c.isspace()]) / len(text)
-                        else:
-                            confidence = len([c for c in text if c.isalnum()]) / len(text)
-                        
-                        if confidence > best_results[lang_code]['confidence'] and len(text) > 5:
+                    with results_lock:
+                        if confidence > best_results[lang_code]['confidence']:
                             best_results[lang_code]['text'] = text
                             best_results[lang_code]['confidence'] = confidence
-                    
-                except Exception as e:
-                    logger.error(f"OCR failed for {lang_info['name']} with config {config}: {str(e)}")
+            
+                # Only try the second config if the first one didn't produce good results
+                if best_results[lang_code]['confidence'] < confidence_threshold and len(ocr_configs) > 1:
+                    try:
+                        full_config = f"{ocr_configs[1]} -l {tesseract_lang}"
+                        
+                        text = pytesseract.image_to_string(
+                            Image.open(image_path),
+                            config=full_config
+                        ).strip()
+                        
+                        # Calculate confidence score
+                        if text and len(text) > 5:
+                            # For non-Latin scripts, adjust confidence calculation
+                            if lang_code in ['hi', 'mr']:
+                                # Count non-space characters instead of alphanumeric
+                                confidence = len([c for c in text if not c.isspace()]) / len(text)
+                            else:
+                                confidence = len([c for c in text if c.isalnum()]) / len(text)
+                            
+                            with results_lock:
+                                if confidence > best_results[lang_code]['confidence']:
+                                    best_results[lang_code]['text'] = text
+                                    best_results[lang_code]['confidence'] = confidence
+                    except Exception as e:
+                        logger.error(f"OCR (second config) failed for {lang_info['name']}: {str(e)}")
+                        
+            except Exception as e:
+                logger.error(f"OCR (first config) failed for {lang_info['name']}: {str(e)}")
+        
+        # Create and start threads for each language
+        for lang_code, lang_info in SUPPORTED_LANGUAGES.items():
+            thread = threading.Thread(target=process_language, args=(lang_code, lang_info))
+            threads.append(thread)
+            thread.start()
+            
+        # Wait for all threads to complete
+        for thread in threads:
+            thread.join()
         
         # Find the best result across all languages
         best_lang = max(best_results.items(), 
@@ -539,6 +595,9 @@ class SmartAssistant:
         """Convert text to speech using gTTS and mpg123 player"""
         print(f"{self.name}: {text}")
         
+        # Reset the stop flag before speaking
+        self.stop_speaking = False
+        
         try:
             # Create a temporary file for the speech audio
             speech_file = os.path.join(self.temp_dir, "assistant_speech.mp3")
@@ -553,9 +612,19 @@ class SmartAssistant:
                 if self.current_audio_process and self.current_audio_process.poll() is None:
                     subprocess.run(['pkill', '-f', 'mpg123'], stderr=subprocess.DEVNULL)
                     self.current_audio_process = None
-                    
+                
+                # Start a thread to check for stop command while speaking
+                stop_thread = threading.Thread(target=self.check_for_stop_command)
+                stop_thread.daemon = True
+                stop_thread.start()
+                
                 # Play the new audio using subprocess.run
                 subprocess.run(["mpg123", "-q", speech_file])
+                
+                # Check if we were interrupted
+                if self.stop_speaking:
+                    print("Speech interrupted by user")
+                    subprocess.run(["mpg123", "-q", self.stop_sound_file])
             
             # Clean up the temporary file - optional, can be kept for debugging
             try:
@@ -567,6 +636,33 @@ class SmartAssistant:
             print(f"Speech error: {e}")
             # Fall back to just printing if speech fails
             print(f"{self.name}: {text}")
+            
+    def check_for_stop_command(self):
+        """Check if the user wants to stop the assistant while it's speaking"""
+        try:
+            with self.microphone as source:
+                # Set timeout to be very short so we return quickly
+                audio = self.recognizer.listen(source, timeout=0.5, phrase_time_limit=1.0)
+                
+                try:
+                    # Only use Google for quick detection of stop words
+                    text = self.recognizer.recognize_google(audio, language='en-IN')
+                    
+                    # Check if it's a stop command
+                    text_lower = text.lower()
+                    if any(stop_word in text_lower for stop_word in self.categories['stop']):
+                        # Set the flag to stop speaking
+                        self.stop_speaking = True
+                        
+                        # Stop the audio immediately
+                        subprocess.run(['pkill', '-f', 'mpg123'], stderr=subprocess.DEVNULL)
+                        
+                except (sr.UnknownValueError, sr.RequestError):
+                    # Ignore speech recognition errors in this thread
+                    pass
+        except:
+            # Ignore any errors in the thread
+            pass
     
     def listen(self):
         """Listen for voice input and convert to text"""
@@ -605,15 +701,7 @@ class SmartAssistant:
                     if self.debug_mode:
                         print(f"Could not request results from Google Speech Recognition service: {e}")
                 
-                # If Google fails, try wit.ai as backup if available
-                if text is None:
-                    try:
-                        text = self.recognizer.recognize_wit(audio, key="YOUR_WIT_AI_KEY")
-                    except (sr.UnknownValueError, sr.RequestError, AttributeError):
-                        if self.debug_mode:
-                            print("Wit.ai recognition failed or not available")
-                            
-                # Finally try offline Sphinx as last resort
+                # If Google fails, try offline Sphinx as last resort
                 if text is None:
                     try:
                         text = self.recognizer.recognize_sphinx(audio)
@@ -1376,10 +1464,12 @@ class SmartAssistant:
 
 # Main execution
 if __name__ == "__main__":
-    print("Starting Integrated Smart Assistant...")
-    
+    print("Initializing Smart Assistant...")
     # You can customize the assistant's name and voice
     assistant = SmartAssistant(name="Alex", voice_index=0)
     
-    # Run the assistant
-    assistant.run() 
+    try:
+        # Run the assistant
+        assistant.run()
+    except Exception as e:
+        print(f"Assistant error: {e}")
