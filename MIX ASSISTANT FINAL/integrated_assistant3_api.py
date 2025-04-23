@@ -30,7 +30,9 @@ from gtts import gTTS
 import cv2
 from picamera2 import Picamera2
 from PIL import Image
-import pytesseract
+from google.cloud import vision
+from google.cloud.vision_v1 import types
+import io
 from googletrans import Translator
 from langdetect import detect
 
@@ -50,14 +52,13 @@ except LookupError:
     nltk.download('punkt')
     nltk.download('stopwords')
 
-# Configure Tesseract path and languages
-pytesseract.pytesseract.tesseract_cmd = r'/usr/bin/tesseract'
-
+# Configure Google Cloud Vision settings
+os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "/home/pi/gcloud.json"
 # Language configurations
 SUPPORTED_LANGUAGES = {
-    'en': {'name': 'english', 'tesseract': 'eng', 'confidence_threshold': 0.3},
-    'hi': {'name': 'hindi', 'tesseract': 'hin', 'confidence_threshold': 0.25},
-    'mr': {'name': 'marathi', 'tesseract': 'mar', 'confidence_threshold': 0.25}
+    'en': {'name': 'english'},
+    'hi': {'name': 'hindi'},
+    'mr': {'name': 'marathi'}
 }
 
 # Aiven MySQL Configuration
@@ -292,17 +293,6 @@ class SmartAssistant:
     def initialize_ocr_system(self):
         """Initialize camera and translator."""
         try:
-            # Check if required Tesseract language data is installed
-            required_langs = [lang['tesseract'] for lang in SUPPORTED_LANGUAGES.values()]
-            installed_langs = pytesseract.get_languages()
-            
-            missing_langs = [lang for lang in required_langs if lang not in installed_langs]
-            if missing_langs:
-                logger.error(f"Missing Tesseract language data for: {', '.join(missing_langs)}")
-                logger.error("Please install required language data using:")
-                logger.error(f"sudo apt-get install tesseract-ocr-{' tesseract-ocr-'.join(missing_langs)}")
-                return False
-            
             self.camera = Picamera2()
             self.translator = Translator()
             
@@ -327,141 +317,70 @@ class SmartAssistant:
                 logger.error(f"Audio playback failed: {str(e)}")
                 self.current_audio_process = None
     
-    def enhance_image(self, image):
-        """Apply advanced image enhancement techniques."""
-        try:
-            # Convert to grayscale
-            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-            
-            # Apply bilateral filter for noise reduction while preserving edges
-            denoised = cv2.bilateralFilter(gray, 9, 75, 75)
-            
-            # Apply adaptive thresholding
-            thresh = cv2.adaptiveThreshold(
-                denoised, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                cv2.THRESH_BINARY, 11, 2
-            )
-            
-            # Apply morphological operations
-            kernel = np.ones((1, 1), np.uint8)
-            morph = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
-            
-            return morph
-        except Exception as e:
-            logger.error(f"Image enhancement failed: {str(e)}")
-            return gray
-    
-    def preprocess_image(self, image_path):
-        """Optimized image preprocessing for faster OCR."""
-        try:
-            """Enhanced image preprocessing for better OCR accuracy."""
-            image = cv2.imread(image_path)
-            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-            denoised = cv2.fastNlMeansDenoising(gray)
-            thresh = cv2.adaptiveThreshold(
-                denoised, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-                cv2.THRESH_BINARY, 11, 2
-            )
-            kernel = np.ones((1, 1), np.uint8)
-            dilated = cv2.dilate(thresh, kernel, iterations=1)
-            preprocessed_path = "preprocessed_image.jpg"
-            cv2.imwrite(preprocessed_path, dilated)
-            return preprocessed_path
-        except Exception as e:
-            logger.error(f"Preprocessing failed: {str(e)}")
-            return image_path
-    
     def extract_text(self, image_path):
-        """Extract text using optimized OCR configurations and languages to reduce processing time."""
-        # Reduced set of OCR configs for faster processing
-        ocr_configs = [
-            '--oem 3 --psm 3',  # Default - best for most cases
-            '--oem 3 --psm 6'   # Assume uniform block of text - for simple layouts
-        ]
-        
-        best_results = {lang_code: {'text': '', 'confidence': 0} 
-                       for lang_code in SUPPORTED_LANGUAGES.keys()}
-        
-        # Use threading to process languages in parallel
-        threads = []
-        results_lock = threading.Lock()
-        
-        def process_language(lang_code, lang_info):
-            tesseract_lang = lang_info['tesseract']
-            confidence_threshold = lang_info['confidence_threshold']
-            
-            # Try only the first (most reliable) config first
+        """Extract text using Google Cloud Vision API."""
+        try:
+            # Check if credentials file exists
+            if not os.path.exists(os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "")):
+                logger.error(f"Credentials file not found: {os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')}")
+                return '', None
+                
+            logger.info(f"Using image: {image_path}")
+            if not os.path.exists(image_path):
+                logger.error(f"Image file not found: {image_path}")
+                return '', None
+                
+            # Initialize the Vision API client
             try:
-                full_config = f"{ocr_configs[0]} -l {tesseract_lang}"
-                
-                text = pytesseract.image_to_string(
-                    Image.open(image_path),
-                    config=full_config
-                ).strip()
-                
-                # Calculate confidence score
-                if text and len(text) > 5:
-                    # For non-Latin scripts, adjust confidence calculation
-                    if lang_code in ['hi', 'mr']:
-                        # Count non-space characters instead of alphanumeric
-                        confidence = len([c for c in text if not c.isspace()]) / len(text)
-                    else:
-                        confidence = len([c for c in text if c.isalnum()]) / len(text)
-                    
-                    with results_lock:
-                        if confidence > best_results[lang_code]['confidence']:
-                            best_results[lang_code]['text'] = text
-                            best_results[lang_code]['confidence'] = confidence
-            
-                # Only try the second config if the first one didn't produce good results
-                if best_results[lang_code]['confidence'] < confidence_threshold and len(ocr_configs) > 1:
-                    try:
-                        full_config = f"{ocr_configs[1]} -l {tesseract_lang}"
-                        
-                        text = pytesseract.image_to_string(
-                            Image.open(image_path),
-                            config=full_config
-                        ).strip()
-                        
-                        # Calculate confidence score
-                        if text and len(text) > 5:
-                            # For non-Latin scripts, adjust confidence calculation
-                            if lang_code in ['hi', 'mr']:
-                                # Count non-space characters instead of alphanumeric
-                                confidence = len([c for c in text if not c.isspace()]) / len(text)
-                            else:
-                                confidence = len([c for c in text if c.isalnum()]) / len(text)
-                            
-                            with results_lock:
-                                if confidence > best_results[lang_code]['confidence']:
-                                    best_results[lang_code]['text'] = text
-                                    best_results[lang_code]['confidence'] = confidence
-                    except Exception as e:
-                        logger.error(f"OCR (second config) failed for {lang_info['name']}: {str(e)}")
-                        
+                client = vision.ImageAnnotatorClient()
+                logger.info("Vision client initialized successfully")
             except Exception as e:
-                logger.error(f"OCR (first config) failed for {lang_info['name']}: {str(e)}")
-        
-        # Create and start threads for each language
-        for lang_code, lang_info in SUPPORTED_LANGUAGES.items():
-            thread = threading.Thread(target=process_language, args=(lang_code, lang_info))
-            threads.append(thread)
-            thread.start()
+                logger.error(f"Failed to initialize Vision client: {str(e)}")
+                return '', None
             
-        # Wait for all threads to complete
-        for thread in threads:
-            thread.join()
-        
-        # Find the best result across all languages
-        best_lang = max(best_results.items(), 
-                       key=lambda x: x[1]['confidence'])
-        
-        if best_lang[1]['confidence'] > SUPPORTED_LANGUAGES[best_lang[0]]['confidence_threshold']:
-            logger.info(f"Detected text in {SUPPORTED_LANGUAGES[best_lang[0]]['name']}")
+            # Read the image file
+            with io.open(image_path, 'rb') as image_file:
+                content = image_file.read()
+                logger.info(f"Image read successfully, size: {len(content)} bytes")
+            
+            # Create an image object
+            image = types.Image(content=content)
+            
+            # Perform text detection on the image
+            try:
+                logger.info("Sending request to Google Cloud Vision API...")
+                response = client.text_detection(image=image)
+                logger.info("Response received from Google Cloud Vision API")
+            except Exception as e:
+                logger.error(f"API request failed: {str(e)}")
+                return '', None
+                
+            texts = response.text_annotations
+            
+            if not texts:
+                logger.warning("No text detected in image by Google Cloud Vision API")
+                return '', None
+            
+            # The first element contains the entire detected text
+            full_text = texts[0].description
+            logger.info(f"Text detected: {full_text[:100]}..." if len(full_text) > 100 else f"Text detected: {full_text}")
+            
+            # Detect language
+            try:
+                detected_lang = detect(full_text)
+                # Map to supported languages or default to English
+                if detected_lang not in SUPPORTED_LANGUAGES:
+                    logger.info(f"Detected language '{detected_lang}' not in supported languages, defaulting to English")
+                    detected_lang = 'en'
+                else:
+                    logger.info(f"Language detected: {detected_lang}")
+            except Exception as e:
+                logger.error(f"Language detection failed: {str(e)}")
+                detected_lang = 'en'  # Default to English if detection fails
             
             # Process text to handle natural line breaks
             # Only end sentences at period, question mark, exclamation mark
-            text = best_lang[1]['text']
+            text = full_text
             
             # Join lines that don't end with sentence punctuation
             sentences = []
@@ -487,9 +406,14 @@ class SmartAssistant:
             # Rejoin with proper spacing
             processed_text = " ".join(sentences)
             
-            return processed_text, best_lang[0]
-        return '', None
-    
+            return processed_text, detected_lang
+            
+        except Exception as e:
+            logger.error(f"Google Cloud Vision API error: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return '', None
+
     def translate_text(self, text, target_lang):
         """Translate text with retry mechanism."""
         max_retries = 3
@@ -536,10 +460,8 @@ class SmartAssistant:
                 self.camera.stop()
                 
                 self.play_audio(AUDIO_PATHS['capture'])
-                
-                # Process image and extract text
-                processed_path = self.preprocess_image(image_path)
-                extracted_text, detected_lang = self.extract_text(processed_path)
+
+                extracted_text, detected_lang = self.extract_text(image_path)
                 
                 if not extracted_text:
                     logger.warning("No text detected in image")

@@ -382,11 +382,20 @@ class SmartAssistant:
         best_results = {lang_code: {'text': '', 'confidence': 0} 
                        for lang_code in SUPPORTED_LANGUAGES.keys()}
         
-        # Use threading to process languages in parallel
-        threads = []
-        results_lock = threading.Lock()
+        # Check if user specified a preferred language to improve processing time
+        preferred_lang = self.current_language  # Use last detected language if available
         
-        def process_language(lang_code, lang_info):
+        # Process languages sequentially for better accuracy on limited hardware
+        # Process English first as it's most likely for English text pages
+        language_order = ['en'] + [lang for lang in SUPPORTED_LANGUAGES.keys() if lang != 'en']
+        
+        # If we have a preferred language and it's not English, prioritize it
+        if preferred_lang and preferred_lang != 'en' and preferred_lang in language_order:
+            language_order.remove(preferred_lang)
+            language_order.insert(0, preferred_lang)
+        
+        for lang_code in language_order:
+            lang_info = SUPPORTED_LANGUAGES[lang_code]
             tesseract_lang = lang_info['tesseract']
             confidence_threshold = lang_info['confidence_threshold']
             
@@ -401,17 +410,35 @@ class SmartAssistant:
                 
                 # Calculate confidence score
                 if text and len(text) > 5:
-                    # For non-Latin scripts, adjust confidence calculation
-                    if lang_code in ['hi', 'mr']:
-                        # Count non-space characters instead of alphanumeric
-                        confidence = len([c for c in text if not c.isspace()]) / len(text)
+                    # Calculate script-specific confidence
+                    if lang_code == 'en':
+                        # For English, count alphanumeric and verify typical English characteristics
+                        alpha_count = sum(c.isalpha() for c in text)
+                        alnum_count = sum(c.isalnum() for c in text)
+                        
+                        # Only count as English if it has enough alphabetic characters
+                        # and doesn't have too many Devanagari characters
+                        devanagari_chars = sum(0x0900 <= ord(c) <= 0x097F for c in text)
+                        
+                        # If significant Devanagari presence, reduce English confidence
+                        if devanagari_chars > len(text) * 0.1:
+                            confidence = 0.1  # Very low confidence
+                        else:
+                            # Higher confidence for primarily alphabetic text with English punctuation
+                            confidence = (alpha_count / len(text)) * 1.5 if alpha_count > 0 else 0.1
+                    
+                    # For Hindi/Marathi, check for Devanagari script
+                    elif lang_code in ['hi', 'mr']:
+                        # Count non-space characters and check for Devanagari script characters
+                        devanagari_chars = sum(0x0900 <= ord(c) <= 0x097F for c in text if not c.isspace())
+                        confidence = devanagari_chars / len(text) if devanagari_chars > 0 else 0.1
                     else:
+                        # Default confidence calculation
                         confidence = len([c for c in text if c.isalnum()]) / len(text)
                     
-                    with results_lock:
-                        if confidence > best_results[lang_code]['confidence']:
-                            best_results[lang_code]['text'] = text
-                            best_results[lang_code]['confidence'] = confidence
+                    if confidence > best_results[lang_code]['confidence']:
+                        best_results[lang_code]['text'] = text
+                        best_results[lang_code]['confidence'] = confidence
             
                 # Only try the second config if the first one didn't produce good results
                 if best_results[lang_code]['confidence'] < confidence_threshold and len(ocr_configs) > 1:
@@ -425,40 +452,82 @@ class SmartAssistant:
                         
                         # Calculate confidence score
                         if text and len(text) > 5:
-                            # For non-Latin scripts, adjust confidence calculation
-                            if lang_code in ['hi', 'mr']:
-                                # Count non-space characters instead of alphanumeric
-                                confidence = len([c for c in text if not c.isspace()]) / len(text)
+                            # Same script-specific confidence logic as above
+                            if lang_code == 'en':
+                                alpha_count = sum(c.isalpha() for c in text)
+                                devanagari_chars = sum(0x0900 <= ord(c) <= 0x097F for c in text)
+                                
+                                if devanagari_chars > len(text) * 0.1:
+                                    confidence = 0.1
+                                else:
+                                    confidence = (alpha_count / len(text)) * 1.5 if alpha_count > 0 else 0.1
+                            elif lang_code in ['hi', 'mr']:
+                                devanagari_chars = sum(0x0900 <= ord(c) <= 0x097F for c in text if not c.isspace())
+                                confidence = devanagari_chars / len(text) if devanagari_chars > 0 else 0.1
                             else:
                                 confidence = len([c for c in text if c.isalnum()]) / len(text)
                             
-                            with results_lock:
-                                if confidence > best_results[lang_code]['confidence']:
-                                    best_results[lang_code]['text'] = text
-                                    best_results[lang_code]['confidence'] = confidence
+                            if confidence > best_results[lang_code]['confidence']:
+                                best_results[lang_code]['text'] = text
+                                best_results[lang_code]['confidence'] = confidence
                     except Exception as e:
                         logger.error(f"OCR (second config) failed for {lang_info['name']}: {str(e)}")
                         
             except Exception as e:
                 logger.error(f"OCR (first config) failed for {lang_info['name']}: {str(e)}")
+                
+            # If we've found a high-confidence match in our preferred or English language,
+            # we can exit early to save processing time
+            if (lang_code == 'en' or lang_code == preferred_lang) and \
+               best_results[lang_code]['confidence'] > confidence_threshold * 1.2:
+                logger.info(f"Found high confidence match in {SUPPORTED_LANGUAGES[lang_code]['name']}. Skipping other languages.")
+                break
         
-        # Create and start threads for each language
-        for lang_code, lang_info in SUPPORTED_LANGUAGES.items():
-            thread = threading.Thread(target=process_language, args=(lang_code, lang_info))
-            threads.append(thread)
-            thread.start()
-            
-        # Wait for all threads to complete
-        for thread in threads:
-            thread.join()
+        # Apply additional weighting - give English a slight boost when confidence is close
+        # This helps correctly identify English text in mixed-language situations
+        if 'en' in best_results and best_results['en']['confidence'] > 0:
+            best_results['en']['confidence'] *= 1.1  # 10% boost for English
         
         # Find the best result across all languages
         best_lang = max(best_results.items(), 
                        key=lambda x: x[1]['confidence'])
         
+        # Log confidence scores for debugging
+        for lang_code, result in best_results.items():
+            logger.info(f"OCR confidence for {SUPPORTED_LANGUAGES[lang_code]['name']}: {result['confidence']:.3f}")
+        
         if best_lang[1]['confidence'] > SUPPORTED_LANGUAGES[best_lang[0]]['confidence_threshold']:
             logger.info(f"Detected text in {SUPPORTED_LANGUAGES[best_lang[0]]['name']}")
-            return best_lang[1]['text'], best_lang[0]
+            
+            # Process text to handle natural line breaks
+            # Only end sentences at period, question mark, exclamation mark
+            text = best_lang[1]['text']
+            
+            # Join lines that don't end with sentence punctuation
+            sentences = []
+            current = ""
+            
+            for line in text.split('\n'):
+                line = line.strip()
+                if not line:  # Skip empty lines
+                    continue
+                    
+                # If previous line doesn't end with sentence-ending punctuation, join with space
+                if current and not re.search(r'[.!?]$', current):
+                    current += " " + line
+                else:
+                    if current:  # Add complete sentence to list
+                        sentences.append(current)
+                    current = line
+                    
+            # Add the last sentence if any
+            if current:
+                sentences.append(current)
+                
+            # Rejoin with proper spacing
+            processed_text = " ".join(sentences)
+            
+            return processed_text, best_lang[0]
         return '', None
     
     def translate_text(self, text, target_lang):
@@ -540,12 +609,16 @@ class SmartAssistant:
                     try:
                         translated = self.translate_text(extracted_text, target_code)
                         if translated:
+                            # Preprocess translated text for better speech
+                            processed_translation = re.sub(r'\n+', ' ', translated) 
+                            processed_translation = re.sub(r'\s+', ' ', processed_translation)
+                            
                             # Safely update shared translations dictionary
                             with translations_lock:
                                 self.last_translated_text[target_code] = translated
                             
                             # Create audio file for this translation
-                            tts = gTTS(translated, lang=target_code)
+                            tts = gTTS(processed_translation, lang=target_code)
                             tts.save(AUDIO_PATHS[target_info['name']])
                             logger.info(f"Translation to {target_info['name']} completed")
                     except Exception as e:
@@ -713,6 +786,10 @@ class SmartAssistant:
         self.stop_speaking = False
         
         try:
+            # Preprocess text to handle line breaks properly
+            processed_text = re.sub(r'\n+', ' ', text)  # Replace line breaks with spaces
+            processed_text = re.sub(r'\s+', ' ', processed_text)  # Normalize spaces
+
             # Create a temporary file for the speech audio
             speech_file = os.path.join(self.temp_dir, "assistant_speech.mp3")
             
@@ -998,7 +1075,7 @@ class SmartAssistant:
         if any(word in query_lower for word in self.categories['goodbye']):
             self.is_active = False
             self.play_audio(AUDIO_PATHS['goodbye'])
-            return "Goodbye! Have a great day."
+            return ""
         
         # Basic greeting
         if any(word in query_lower for word in self.categories['greeting']):
