@@ -58,7 +58,15 @@ os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "/home/pi/credentials.json"
 SUPPORTED_LANGUAGES = {
     'en': {'name': 'english'},
     'hi': {'name': 'hindi'},
-    'mr': {'name': 'marathi'}
+    'mr': {'name': 'marathi'},
+    'ta': {'name': 'tamil'},
+    'te': {'name': 'telugu'},
+    'bn': {'name': 'bengali'},
+    'gu': {'name': 'gujarati'},
+    'kn': {'name': 'kannada'},
+    'ml': {'name': 'malayalam'},
+    'pa': {'name': 'punjabi'},
+    'ur': {'name': 'urdu'}
 }
 
 # Aiven MySQL Configuration
@@ -79,6 +87,14 @@ AUDIO_PATHS = {
     'english': os.path.join(AUDIO_DIR, "english_audio.mp3"),
     'hindi': os.path.join(AUDIO_DIR, "hindi_audio.mp3"),
     'marathi': os.path.join(AUDIO_DIR, "marathi_audio.mp3"),
+    'tamil': os.path.join(AUDIO_DIR, "tamil_audio.mp3"),
+    'telugu': os.path.join(AUDIO_DIR, "telugu_audio.mp3"),
+    'bengali': os.path.join(AUDIO_DIR, "bengali_audio.mp3"),
+    'gujarati': os.path.join(AUDIO_DIR, "gujarati_audio.mp3"),
+    'kannada': os.path.join(AUDIO_DIR, "kannada_audio.mp3"),
+    'malayalam': os.path.join(AUDIO_DIR, "malayalam_audio.mp3"),
+    'punjabi': os.path.join(AUDIO_DIR, "punjabi_audio.mp3"),
+    'urdu': os.path.join(AUDIO_DIR, "urdu_audio.mp3"),
     
     # System feedback audio files
     'capture': os.path.join(AUDIO_DIR, "capture_sound.mp3"),
@@ -122,16 +138,14 @@ class SmartAssistant:
     def __init__(self, name="Assistant", voice_index=0):
         self.name = name
         self.recognizer = sr.Recognizer()
-        self.microphone = sr.Microphone()
         
         # Initialize speech settings
         self.speech_rate = "normal"  # Normal speech rate
         self.temp_dir = tempfile.gettempdir()
         
         # Initialize speech recognition settings
-        with self.microphone as source:
-            self.recognizer.adjust_for_ambient_noise(source, duration=1)
-            
+        # Don't create microphone here, create it when needed instead
+        
         # Knowledge base for common questions
         self.knowledge_base = self.load_knowledge_base()
         
@@ -162,7 +176,7 @@ class SmartAssistant:
         self.categories = {
             'time': ['time', 'clock', 'hour'],
             'date': ['date', 'day', 'month', 'year', 'today'],
-            'weather': ['weather', 'temperature', 'forecast', 'rain', 'sunny'],
+            'weather': ['weather', 'temperature', 'forecast', 'current weather', 'current temperature'],
             'wikipedia': ['who is', 'what is', 'tell me about', 'wikipedia', 'define'],
             'news': ['news', 'latest news', 'headlines', 'current events'],
             'general': ['how to', 'why do', 'how does', 'explain'],
@@ -198,6 +212,14 @@ class SmartAssistant:
             'play_english': ['play english', 'english translation', 'translate english', 'read in english'],
             'play_hindi': ['play hindi', 'hindi translation', 'translate hindi', 'read in hindi'],
             'play_marathi': ['play marathi', 'marathi translation', 'translate marathi', 'read in marathi'],
+            'play_tamil': ['play tamil', 'tamil translation', 'translate tamil', 'read in tamil'],
+            'play_telugu': ['play telugu', 'telugu translation', 'translate telugu', 'read in telugu'],
+            'play_bengali': ['play bengali', 'bengali translation', 'translate bengali', 'read in bengali'],
+            'play_gujarati': ['play gujarati', 'gujarati translation', 'translate gujarati', 'read in gujarati'],
+            'play_kannada': ['play kannada', 'kannada translation', 'translate kannada', 'read in kannada'],
+            'play_malayalam': ['play malayalam', 'malayalam translation', 'translate malayalam', 'read in malayalam'],
+            'play_punjabi': ['play punjabi', 'punjabi translation', 'translate punjabi', 'read in punjabi'],
+            'play_urdu': ['play urdu', 'urdu translation', 'translate urdu', 'read in urdu'],
             # Stop commands
             'stop': ['stop', 'interrupt', 'be quiet', 'shut up', 'silence', 'pause', 'hold on']
         }
@@ -317,6 +339,26 @@ class SmartAssistant:
                 logger.error(f"Audio playback failed: {str(e)}")
                 self.current_audio_process = None
     
+        def preprocess_image(self, image_path):
+            """Optimized image preprocessing for faster OCR."""
+            try:
+                """Enhanced image preprocessing for better OCR accuracy."""
+                image = cv2.imread(image_path)
+                gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+                denoised = cv2.fastNlMeansDenoising(gray)
+                thresh = cv2.adaptiveThreshold(
+                    denoised, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+                    cv2.THRESH_BINARY, 11, 2
+                )
+                kernel = np.ones((1, 1), np.uint8)
+                dilated = cv2.dilate(thresh, kernel, iterations=1)
+                preprocessed_path = "preprocessed_image.jpg"
+                cv2.imwrite(preprocessed_path, dilated)
+                return preprocessed_path
+            except Exception as e:
+                logger.error(f"Preprocessing failed: {str(e)}")
+                return image_path
+
     def extract_text(self, image_path):
         """Extract text using Google Cloud Vision API."""
         try:
@@ -462,6 +504,8 @@ class SmartAssistant:
                 self.play_audio(AUDIO_PATHS['capture'])
 
                 extracted_text, detected_lang = self.extract_text(image_path)
+
+                
                 
                 if not extracted_text:
                     logger.warning("No text detected in image")
@@ -714,7 +758,7 @@ class SmartAssistant:
         """Check if the user wants to stop the assistant while it's speaking"""
         try:
             # Create a timeout for listening that's not too long
-            with self.microphone as source:
+            with sr.Microphone() as source:
                 # Set the microphone sensitivity higher for faster response
                 self.recognizer.energy_threshold = 600  # Higher threshold to avoid false triggers
                 self.recognizer.dynamic_energy_threshold = False  # Disable dynamic threshold for stop commands
@@ -756,10 +800,12 @@ class SmartAssistant:
         """Listen for voice input and convert to text"""
         # if self.listening_sound:
         #     self.listening_sound.play()
-            
+        
         print(f"{self.name} is listening...")
         
-        with self.microphone as source:
+        # Create a new microphone instance each time to avoid context manager issues
+        microphone = sr.Microphone()
+        with microphone as source:
             try:
                 # Adjust for ambient noise before each listening session
                 self.recognizer.adjust_for_ambient_noise(source, duration=0.5)
@@ -871,32 +917,169 @@ class SmartAssistant:
         return f"Today is {current_date}."
         
     def get_weather(self, location=""):
-        """Get weather information for a location"""
+        """Get weather information for a location using wttr.in weather service"""
         if not location:
             location = "Nashik"
-            
+        
+        # Clean up location name further
+        location = location.strip()
+        # Remove punctuation that might affect URL formatting
+        location = re.sub(r'[,?!.;:]', '', location)
+
+        # For debugging
+        if self.debug_mode:
+            print(f"Searching weather for: '{location}'")
+
+        # Get weather from wttr.in
         try:
-            # Web scraping approach for weather (no API key required)
-            url = f"https://www.google.com/search?q=weather+in+{location.replace(' ', '+')}"
+            result = self._get_weather_from_wttrin(location)
+            if result:
+                if self.debug_mode:
+                    print(f"Successfully got weather from wttr.in")
+                return result
+
+            # If wttr.in fails, return a helpful message
+            if self.debug_mode:
+                print(f"Weather lookup failed for location: {location}")
+                
+            current_date = datetime.datetime.now().strftime("%A, %B %d")
+            return f"I'm sorry, I couldn't retrieve the current weather for {location}. Today is {current_date}. Please check that the location name is correct and try again."
+
+        except Exception as e:
+            # Handle any unexpected errors
+            if self.debug_mode:
+                print(f"Weather error: {type(e).__name__}: {e}")
+            return f"I'm having trouble processing weather information for {location} right now. Please try again later."
+
+    def _get_weather_from_wttrin(self, location):
+        """Get detailed weather from wttr.in (text-based weather service)"""
+        try:
+            # First try to get detailed weather information
+            detailed_url = f"https://wttr.in/{location.replace(' ', '+')}?format=4"
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
+            
+            if self.debug_mode:
+                print(f"Requesting detailed wttr.in for location: {location}")
+                
+            response = requests.get(detailed_url, headers=headers, timeout=8)
+            
+            if response.status_code == 200:
+                weather_text = response.text.strip()
+                if self.debug_mode:
+                    print(f"wttr.in detailed response: {weather_text}")
+                    
+                if weather_text and len(weather_text) > 10 and "Unknown location" not in weather_text:
+                    # Format the response in a more readable way
+                    formatted_response = f"Weather in {location}: {weather_text}"
+                    
+                    # Try to get more detailed information
+                    try:
+                        # Get more detailed forecast with format=j1 (JSON)
+                        forecast_url = f"https://wttr.in/{location.replace(' ', '+')}?format=j1"
+                        forecast_response = requests.get(forecast_url, headers=headers, timeout=8)
+                        
+                        if forecast_response.status_code == 200:
+                            forecast_data = forecast_response.json()
+                            
+                            # Extract current conditions if available
+                            if 'current_condition' in forecast_data and forecast_data['current_condition']:
+                                current = forecast_data['current_condition'][0]
+                                
+                                # Add humidity information
+                                humidity = current.get('humidity', '')
+                                if humidity:
+                                    formatted_response += f"\nHumidity: {humidity}%"
+                                
+                                # Add wind information
+                                wind_speed = current.get('windspeedKmph', '')
+                                wind_dir = current.get('winddir16Point', '')
+                                if wind_speed and wind_dir:
+                                    formatted_response += f"\nWind: {wind_speed} km/h from {wind_dir}"
+                                elif wind_speed:
+                                    formatted_response += f"\nWind Speed: {wind_speed} km/h"
+                                
+                                # Add feels like temperature
+                                feels_like = current.get('FeelsLikeC', '')
+                                if feels_like:
+                                    formatted_response += f"\nFeels like: {feels_like}°C"
+                                
+                                # Add visibility
+                                visibility = current.get('visibility', '')
+                                if visibility:
+                                    formatted_response += f"\nVisibility: {visibility} km"
+                    except Exception as forecast_error:
+                        if self.debug_mode:
+                            print(f"Error getting forecast details: {str(forecast_error)}")
+                    
+                    return formatted_response
+                    
+            # If detailed format fails, try the simpler format
+            simple_url = f"https://wttr.in/{location.replace(' ', '+')}?format=3"
+            response = requests.get(simple_url, headers=headers, timeout=8)
+            
+            if response.status_code == 200:
+                weather_text = response.text.strip()
+                if self.debug_mode:
+                    print(f"wttr.in simple response: {weather_text}")
+                    
+                if weather_text and len(weather_text) > 10 and "Unknown location" not in weather_text:
+                    return f"Weather in {location}: {weather_text}"
+                    
+            return None
+        except Exception as e:
+            if self.debug_mode:
+                print(f"Error getting weather from wttr.in: {str(e)}")
+            return None
+
+    def get_news(self):
+        """Get latest news headlines"""
+        try:
+            # Web scraping approach for news (no API key required)
+            url = "https://news.google.com/"
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.110 Safari/537.36'
             }
             
-            response = requests.get(url, headers=headers)
+            response = requests.get(url, headers=headers, timeout=10)
             soup = BeautifulSoup(response.text, 'html.parser')
             
-            # Extract temperature (this selector might need updates based on Google's layout changes)
-            temp_div = soup.find('div', {'class': 'BNeawe iBp4i AP7Wnd'})
-            if temp_div:
-                temperature = temp_div.text
-                return f"The temperature in {location} is currently {temperature}."
+            # Try multiple CSS selectors for Google News headlines (they change frequently)
+            articles = soup.find_all('a', {'class': 'VDXfz'})
+            
+            if not articles:  # Try alternate class if first one doesn't work
+                articles = soup.find_all('h4', {'class': 'gPFEn'})
+            
+            if not articles:  # Try another selector
+                articles = soup.find_all('h3', {'class': 'ipQwMb'})
+                
+            if not articles:  # Try broader approach
+                articles = soup.select("a[aria-label] h4")
+                
+            if not articles:  # Final attempt with different structure
+                articles = soup.select("article h3")
+            
+            headlines = []
+            if articles:
+                for i, article in enumerate(articles[:5]):  # Get top 5 headlines
+                    headline_text = article.get_text().strip()
+                    if headline_text and len(headline_text) > 10:  # Filter out too short headlines
+                        headlines.append(f"{i+1}. {headline_text}")
+                    
+                    if len(headlines) >= 5:  # Stop after collecting 5 headlines
+                        break
+            
+            if headlines:
+                headlines_text = "\n".join(headlines)
+                return f"Here are today's top headlines:\n{headlines_text}"
             else:
-                return f"I couldn't find the weather for {location}. Please try another location."
+                # Fallback to a simple message with date when we can't get news
+                current_date = datetime.datetime.now().strftime("%A, %B %d, %Y")
+                return f"I'm having trouble retrieving the news headlines for {current_date}. Please try again later."
                 
         except Exception as e:
             if self.debug_mode:
-                print(f"Weather error: {e}")
-            return f"I'm having trouble getting weather information right now. Please try again later."
+                print(f"News error: {e}")
+            return "I'm having trouble getting the news right now. Please try again later."
     
     def get_last_captured_text(self):
         """Retrieve the last captured text from memory or database"""
@@ -994,19 +1177,52 @@ class SmartAssistant:
             
         elif category == "play_original" and self.last_captured_text:
             self.play_translation(self.current_language)
-            return f"Playing the original text in {SUPPORTED_LANGUAGES[self.current_language]['name']}."
+            # return f"Playing the original text in {SUPPORTED_LANGUAGES[self.current_language]['name']}."
+            return ""
             
         elif category == "play_english" and self.last_captured_text:
             self.play_translation('en')
-            return "Playing the English translation."
+            return ""
             
         elif category == "play_hindi" and self.last_captured_text:
             self.play_translation('hi')
-            return "Playing the Hindi translation."
+            return ""
             
         elif category == "play_marathi" and self.last_captured_text:
             self.play_translation('mr')
-            return "Playing the Marathi translation."
+            return ""
+            
+        elif category == "play_tamil" and self.last_captured_text:
+            self.play_translation('ta')
+            return ""
+            
+        elif category == "play_telugu" and self.last_captured_text:
+            self.play_translation('te')
+            return ""
+            
+        elif category == "play_bengali" and self.last_captured_text:
+            self.play_translation('bn')
+            return ""
+            
+        elif category == "play_gujarati" and self.last_captured_text:
+            self.play_translation('gu')
+            return ""
+            
+        elif category == "play_kannada" and self.last_captured_text:
+            self.play_translation('kn')
+            return ""
+            
+        elif category == "play_malayalam" and self.last_captured_text:
+            self.play_translation('ml')
+            return ""
+            
+        elif category == "play_punjabi" and self.last_captured_text:
+            self.play_translation('pa')
+            return ""
+            
+        elif category == "play_urdu" and self.last_captured_text:
+            self.play_translation('ur')
+            return ""
             
         elif category == "translate":
             # Check if we have text to translate
@@ -1035,13 +1251,63 @@ class SmartAssistant:
         elif category == "date":
             response = self.get_current_date()
         elif category == "weather":
-            # Extract location if provided with improved pattern matching
-            location_match = re.search(r'(?:weather|temperature|forecast)\s+(?:in|at|for)\s+([a-zA-Z ]+)', query.lower())
-            if not location_match:
-                # Try a simpler pattern
-                location_match = re.search(r'([a-zA-Z ]+)\s+(?:weather|temperature|forecast)', query.lower())
-            location = location_match.group(1).strip() if location_match else ""
+            # Enhanced location extraction
+            location = "Nashik"  # Default location
+            
+            # Pattern 1: "weather in LOCATION"
+            pattern1 = re.search(r'(?:weather|temperature|forecast|climate|temp)\s+(?:in|at|for|of)\s+([a-zA-Z0-9 ]+?)(?:\s|$|\?|\.)', query.lower())
+            
+            # Pattern 2: "LOCATION weather"
+            pattern2 = re.search(r'([a-zA-Z0-9 ]+?)\s+(?:weather|temperature|forecast|climate|temp)(?:\s|$|\?|\.)', query.lower())
+            
+            # Pattern 3: "how is the weather in LOCATION"
+            pattern3 = re.search(r'how\s+is\s+(?:the\s+)?(?:weather|temperature|forecast|climate|temp)\s+(?:in|at|for|of)\s+([a-zA-Z0-9 ]+?)(?:\s|$|\?|\.)', query.lower())
+            
+            # Pattern 4: "what is the weather in LOCATION"
+            pattern4 = re.search(r'what\s+is\s+(?:the\s+)?(?:weather|temperature|forecast|climate|temp)\s+(?:in|at|for|of)\s+([a-zA-Z0-9 ]+?)(?:\s|$|\?|\.)', query.lower())
+            
+            # Pattern 5: Just the location name if we already know it's a weather query
+            pattern5 = re.search(r'\b([a-zA-Z0-9 ]+?)\b', query.lower())
+            
+            # Check patterns in order of reliability
+            if pattern1:
+                location = pattern1.group(1).strip()
+            elif pattern3:
+                location = pattern3.group(1).strip()
+            elif pattern4:
+                location = pattern4.group(1).strip()
+            elif pattern2:
+                location = pattern2.group(1).strip()
+            elif pattern5:
+                # Only use this if no other pattern matched
+                location = pattern5.group(1).strip()
+                # Don't use single words that are likely not locations
+                non_location_words = ['weather', 'temperature', 'forecast', 'climate', 'temp', 'hot', 'cold', 'warm', 'cool']
+                if location.lower() in non_location_words:
+                    location = ""
+                
+            # Clean up location name (remove common words that might be captured incorrectly)
+            if location:
+                # Remove filler words that might be captured as part of location
+                filler_words = ['please', 'tell', 'me', 'about', 'the', 'current', 'right', 'now', 'outside', 
+                               'what', 'is', 'how', 'check', 'know', 'find', 'out', 'get']
+                for word in filler_words:
+                    location = re.sub(r'\b' + word + r'\b', '', location, flags=re.IGNORECASE)
+                location = location.strip()
+            
+            # If no location found or location is too short, use default
+            if not location or len(location) < 2:
+                location = "Nashik"  # Default location
+            
+            # Debug information if needed
+            if self.debug_mode:
+                print(f"Extracted location: '{location}'")
+                
+            # Temporarily enable debug mode for weather retrieval
+            old_debug = self.debug_mode
+            self.debug_mode = True
             response = self.get_weather(location)
+            self.debug_mode = old_debug
         elif category == "news":
             response = self.get_news()
         elif category == "calculation":
@@ -1394,36 +1660,6 @@ class SmartAssistant:
             if self.debug_mode:
                 print(f"Wikipedia error: {e}")
             return None
-    
-    def get_news(self):
-        """Get latest news headlines"""
-        try:
-            # Web scraping approach for news (no API key required)
-            url = "https://news.google.com/"
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.110 Safari/537.36'
-            }
-            
-            response = requests.get(url, headers=headers)
-            soup = BeautifulSoup(response.text, 'html.parser')
-            
-            # Find news articles
-            articles = soup.find_all('a', {'class': 'VDXfz'})
-            
-            if articles:
-                headlines = []
-                for i, article in enumerate(articles[:5]):  # Get top 5 headlines
-                    headlines.append(f"{i+1}. {article.text.strip()}")
-                    
-                headlines_text = "\n".join(headlines)
-                return f"Here are the latest headlines:\n{headlines_text}"
-            else:
-                return "I couldn't retrieve the latest news headlines. Please try again later."
-                
-        except Exception as e:
-            if self.debug_mode:
-                print(f"News error: {e}")
-            return "I'm having trouble getting the news right now. Please try again later."
     
     def search_web(self, query):
         """Search the web for information with improved accuracy"""
