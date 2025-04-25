@@ -338,26 +338,26 @@ class SmartAssistant:
             except Exception as e:
                 logger.error(f"Audio playback failed: {str(e)}")
                 self.current_audio_process = None
-    
-        def preprocess_image(self, image_path):
-            """Optimized image preprocessing for faster OCR."""
-            try:
-                """Enhanced image preprocessing for better OCR accuracy."""
-                image = cv2.imread(image_path)
-                gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-                denoised = cv2.fastNlMeansDenoising(gray)
-                thresh = cv2.adaptiveThreshold(
-                    denoised, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-                    cv2.THRESH_BINARY, 11, 2
-                )
-                kernel = np.ones((1, 1), np.uint8)
-                dilated = cv2.dilate(thresh, kernel, iterations=1)
-                preprocessed_path = "preprocessed_image.jpg"
-                cv2.imwrite(preprocessed_path, dilated)
-                return preprocessed_path
-            except Exception as e:
-                logger.error(f"Preprocessing failed: {str(e)}")
-                return image_path
+
+    def preprocess_image(self, image_path):
+        """Optimized image preprocessing for faster OCR."""
+        try:
+            """Enhanced image preprocessing for better OCR accuracy."""
+            image = cv2.imread(image_path)
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            denoised = cv2.fastNlMeansDenoising(gray)
+            thresh = cv2.adaptiveThreshold(
+                denoised, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+                cv2.THRESH_BINARY, 11, 2
+            )
+            kernel = np.ones((1, 1), np.uint8)
+            dilated = cv2.dilate(thresh, kernel, iterations=1)
+            preprocessed_path = "preprocessed_image.jpg"
+            cv2.imwrite(preprocessed_path, dilated)
+            return preprocessed_path
+        except Exception as e:
+            logger.error(f"Preprocessing failed: {str(e)}")
+            return image_path
 
     def extract_text(self, image_path):
         """Extract text using Google Cloud Vision API."""
@@ -502,10 +502,17 @@ class SmartAssistant:
                 self.camera.stop()
                 
                 self.play_audio(AUDIO_PATHS['capture'])
+                
+                # Run image preprocessing in background thread
+                preprocessing_thread = threading.Thread(
+                    target=self.preprocess_image,
+                    args=(image_path,)
+                )
+                preprocessing_thread.daemon = True
+                preprocessing_thread.start()
+                logger.info("Started background preprocessing thread")
 
                 extracted_text, detected_lang = self.extract_text(image_path)
-
-                
                 
                 if not extracted_text:
                     logger.warning("No text detected in image")
