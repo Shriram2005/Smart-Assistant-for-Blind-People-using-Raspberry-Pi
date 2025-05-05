@@ -52,8 +52,8 @@ except LookupError:
     nltk.download('punkt')
     nltk.download('stopwords')
 
-# Configure Google Cloud Vision settings
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "/home/pi/credentials.json"
+
 # Language configurations
 SUPPORTED_LANGUAGES = {
     'en': {'name': 'english'},
@@ -142,10 +142,7 @@ class SmartAssistant:
         # Initialize speech settings
         self.speech_rate = "normal"  # Normal speech rate
         self.temp_dir = tempfile.gettempdir()
-        
-        # Initialize speech recognition settings
-        # Don't create microphone here, create it when needed instead
-        
+
         # Knowledge base for common questions
         self.knowledge_base = self.load_knowledge_base()
         
@@ -360,7 +357,7 @@ class SmartAssistant:
             return image_path
 
     def extract_text(self, image_path):
-        """Extract text using Google Cloud Vision API."""
+        """Extract text using Tesseract OCR"""
         try:
             # Check if credentials file exists
             if not os.path.exists(os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "")):
@@ -375,9 +372,9 @@ class SmartAssistant:
             # Initialize the Vision API client
             try:
                 client = vision.ImageAnnotatorClient()
-                logger.info("Vision client initialized successfully")
+                logger.info("OCR initialized successfully")
             except Exception as e:
-                logger.error(f"Failed to initialize Vision client: {str(e)}")
+                logger.error(f"Failed to initialize OCR: {str(e)}")
                 return '', None
             
             # Read the image file
@@ -390,17 +387,17 @@ class SmartAssistant:
             
             # Perform text detection on the image
             try:
-                logger.info("Sending request to Google Cloud Vision API...")
+                logger.info("Processing OCR")
                 response = client.text_detection(image=image)
-                logger.info("Response received from Google Cloud Vision API")
+                logger.info("Response received from OCR")
             except Exception as e:
-                logger.error(f"API request failed: {str(e)}")
+                logger.error(f"OCR request failed: {str(e)}")
                 return '', None
                 
             texts = response.text_annotations
             
             if not texts:
-                logger.warning("No text detected in image by Google Cloud Vision API")
+                logger.warning("No text detected in image by OCR")
                 return '', None
             
             # The first element contains the entire detected text
@@ -451,7 +448,7 @@ class SmartAssistant:
             return processed_text, detected_lang
             
         except Exception as e:
-            logger.error(f"Google Cloud Vision API error: {str(e)}")
+            logger.error(f"Error in OCR: {str(e)}")
             import traceback
             logger.error(traceback.format_exc())
             return '', None
