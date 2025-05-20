@@ -59,14 +59,9 @@ SUPPORTED_LANGUAGES = {
     'en': {'name': 'english'},
     'hi': {'name': 'hindi'},
     'mr': {'name': 'marathi'},
-    'ta': {'name': 'tamil'},
-    'te': {'name': 'telugu'},
     'bn': {'name': 'bengali'},
     'gu': {'name': 'gujarati'},
-    'kn': {'name': 'kannada'},
-    'ml': {'name': 'malayalam'},
-    'pa': {'name': 'punjabi'},
-    'ur': {'name': 'urdu'}
+    'kn': {'name': 'kannada'}
 }
 
 # Aiven MySQL Configuration
@@ -87,14 +82,9 @@ AUDIO_PATHS = {
     'english': os.path.join(AUDIO_DIR, "english_audio.mp3"),
     'hindi': os.path.join(AUDIO_DIR, "hindi_audio.mp3"),
     'marathi': os.path.join(AUDIO_DIR, "marathi_audio.mp3"),
-    'tamil': os.path.join(AUDIO_DIR, "tamil_audio.mp3"),
-    'telugu': os.path.join(AUDIO_DIR, "telugu_audio.mp3"),
     'bengali': os.path.join(AUDIO_DIR, "bengali_audio.mp3"),
     'gujarati': os.path.join(AUDIO_DIR, "gujarati_audio.mp3"),
     'kannada': os.path.join(AUDIO_DIR, "kannada_audio.mp3"),
-    'malayalam': os.path.join(AUDIO_DIR, "malayalam_audio.mp3"),
-    'punjabi': os.path.join(AUDIO_DIR, "punjabi_audio.mp3"),
-    'urdu': os.path.join(AUDIO_DIR, "urdu_audio.mp3"),
     
     # System feedback audio files
     'capture': os.path.join(AUDIO_DIR, "capture_sound.mp3"),
@@ -179,7 +169,7 @@ class SmartAssistant:
             'general': ['how to', 'why do', 'how does', 'explain'],
             'calculation': ['calculate', 'compute', 'math', 'solve', 'plus', 'minus', 'times', 'divided by'],
             'web_search': ['search for', 'google', 'find', 'look up'],
-            'greeting': ['hello', 'hi', 'hey', 'greetings'],
+            'greeting': ['hello', '\bhi\b', 'hey', 'greetings'],
             'goodbye': ['goodbye', 'bye', 'see you', 'exit', 'quit', 'stop'],
             'about': ['who are you', 'what can you do', 'your name', 'about you'],
             'read_text': ['read the last text', 'last captured text', 'read captured text', 'what was the last text', 'read the last text', 'repeat the last text'],
@@ -209,14 +199,9 @@ class SmartAssistant:
             'play_english': ['play english', 'english translation', 'translate english', 'read in english'],
             'play_hindi': ['play hindi', 'hindi translation', 'translate hindi', 'read in hindi'],
             'play_marathi': ['play marathi', 'marathi translation', 'translate marathi', 'read in marathi'],
-            'play_tamil': ['play tamil', 'tamil translation', 'translate tamil', 'read in tamil'],
-            'play_telugu': ['play telugu', 'telugu translation', 'translate telugu', 'read in telugu'],
             'play_bengali': ['play bengali', 'bengali translation', 'translate bengali', 'read in bengali'],
             'play_gujarati': ['play gujarati', 'gujarati translation', 'translate gujarati', 'read in gujarati'],
             'play_kannada': ['play kannada', 'kannada translation', 'translate kannada', 'read in kannada'],
-            'play_malayalam': ['play malayalam', 'malayalam translation', 'translate malayalam', 'read in malayalam'],
-            'play_punjabi': ['play punjabi', 'punjabi translation', 'translate punjabi', 'read in punjabi'],
-            'play_urdu': ['play urdu', 'urdu translation', 'translate urdu', 'read in urdu'],
             # Stop commands
             'stop': ['stop', 'interrupt', 'be quiet', 'shut up', 'silence', 'pause', 'hold on']
         }
@@ -735,12 +720,21 @@ class SmartAssistant:
                     self.current_audio_process = None
                 
                 # Start a thread to check for stop command while speaking
+                # More aggressive stop command detection
                 stop_thread = threading.Thread(target=self.check_for_stop_command)
                 stop_thread.daemon = True
                 stop_thread.start()
                 
-                # Play the new audio using subprocess.run
-                subprocess.run(["mpg123", "-q", speech_file])
+                # Play the new audio using subprocess.Popen for better control
+                self.current_audio_process = subprocess.Popen(["mpg123", "-q", speech_file])
+                
+                # Wait for the audio to complete or be interrupted
+                while self.current_audio_process.poll() is None:
+                    # Check if stop command was detected
+                    if self.stop_speaking:
+                        self.current_audio_process.terminate()
+                        break
+                    time.sleep(0.1)  # Small sleep to prevent high CPU usage
                 
                 # Check if we were interrupted
                 if self.stop_speaking:
@@ -761,38 +755,61 @@ class SmartAssistant:
     def check_for_stop_command(self):
         """Check if the user wants to stop the assistant while it's speaking"""
         try:
-            # Create a timeout for listening that's not too long
+            # Create a timeout for listening that's more responsive
             with sr.Microphone() as source:
                 # Set the microphone sensitivity higher for faster response
-                self.recognizer.energy_threshold = 600  # Higher threshold to avoid false triggers
-                self.recognizer.dynamic_energy_threshold = False  # Disable dynamic threshold for stop commands
+                self.recognizer.energy_threshold = 400  # Lower threshold (was 600) to be more sensitive
+                self.recognizer.dynamic_energy_threshold = True  # Enable dynamic threshold for better adaptation
+                self.recognizer.pause_threshold = 0.5  # Make it more responsive to shorter pauses
                 
-                # Listen with a very short timeout to be responsive
+                # Listen with longer timeout to be more responsive
                 try:
                     # Dynamic pause detection for quicker response to stop commands
-                    audio = self.recognizer.listen(source, timeout=1.0, phrase_time_limit=2.0)
+                    audio = self.recognizer.listen(source, timeout=2.0, phrase_time_limit=3.0)
                     
                     # Try to recognize what was said
                     text = self.recognizer.recognize_google(audio, language='en-IN')
                     print(f"Detected during speech: {text}")
                     
-                    # Check if it contains a stop command
+                    # Check if it contains a stop command (improved detection)
                     text_lower = text.lower()
-                    if any(stop_word in text_lower for stop_word in self.categories['stop']):
+                    stop_words = ['stop', 'shut up', 'be quiet', 'silence', 'pause', 'halt', 'enough']
+                    
+                    # More sensitive matching for stop commands
+                    if any(stop_word in text_lower for stop_word in stop_words):
                         print("Stop command detected!")
                         # Set the flag to stop speaking
                         self.stop_speaking = True
                         
-                        # Forcefully kill audio processes
+                        # Forcefully kill audio processes - more aggressive termination
                         try:
+                            # Try multiple kill commands for better results
                             subprocess.run(['pkill', '-9', '-f', 'mpg123'], 
+                                            stderr=subprocess.DEVNULL, 
+                                            stdout=subprocess.DEVNULL)
+                            # Also kill any other potential audio players
+                            subprocess.run(['pkill', '-9', '-f', 'play'], 
                                             stderr=subprocess.DEVNULL, 
                                             stdout=subprocess.DEVNULL)
                         except Exception as e:
                             print(f"Error stopping audio: {e}")
                     
-                except (sr.UnknownValueError, sr.RequestError, sr.WaitTimeoutError):
-                    # Ignore speech recognition errors in background thread
+                except (sr.UnknownValueError, sr.RequestError):
+                    # Try again with a lower threshold if first attempt failed
+                    try:
+                        self.recognizer.energy_threshold = 300  # Even lower threshold for a second attempt
+                        audio = self.recognizer.listen(source, timeout=1.0, phrase_time_limit=2.0)
+                        text = self.recognizer.recognize_google(audio, language='en-IN')
+                        
+                        text_lower = text.lower()
+                        if any(stop_word in text_lower for stop_word in ['stop', 'shut up', 'quiet']):
+                            print("Stop command detected on second attempt!")
+                            self.stop_speaking = True
+                            subprocess.run(['pkill', '-9', '-f', 'mpg123'], stderr=subprocess.DEVNULL)
+                    except:
+                        pass
+                except sr.WaitTimeoutError:
+                    # Timeout is normal, do nothing
                     pass
                 
         except Exception as e:
@@ -865,6 +882,14 @@ class SmartAssistant:
         stop_words = set(stopwords.words('english'))
         query_tokens = [token for token in query_tokens if token not in stop_words and len(token) > 2]
         
+        # Direct pattern matching for language-related commands (highest priority)
+        if re.search(r'\btranslate\s+(to|in|into)\s+\w+', query_lower):
+            return "translate"
+            
+        # Handle Hindi translation request specifically to avoid greeting confusion
+        if "hindi" in query_lower and any(word in query_lower for word in ["translate", "translation", "convert", "say in"]):
+            return "translate"
+            
         # Special case handling for common misclassifications
         if "raspberry pi" in query_lower:
             return "web_search"  # Force web search for Raspberry Pi queries
@@ -874,6 +899,9 @@ class SmartAssistant:
             for keyword in keywords:
                 # Check for exact phrases (higher priority)
                 if keyword in query_lower and len(keyword.split()) > 1:
+                    # Avoid false greeting triggers for translation requests
+                    if category == 'greeting' and 'translate' in query_lower:
+                        continue
                     return category
         
         # Use word boundary matching for single words to avoid substring matches
@@ -883,6 +911,9 @@ class SmartAssistant:
                     # Check if it's a whole word using word boundaries
                     pattern = r'\b' + re.escape(keyword) + r'\b'
                     if re.search(pattern, query_lower):
+                        # Skip greeting match if this looks like a translation request
+                        if category == 'greeting' and any(lang in query_lower for lang in ["hindi", "english", "marathi", "bengali", "gujarati", "kannada"]):
+                            continue
                         return category
         
         # For more complex queries, use a scoring system
@@ -1196,14 +1227,6 @@ class SmartAssistant:
             self.play_translation('mr')
             return ""
             
-        elif category == "play_tamil" and self.last_captured_text:
-            self.play_translation('ta')
-            return ""
-            
-        elif category == "play_telugu" and self.last_captured_text:
-            self.play_translation('te')
-            return ""
-            
         elif category == "play_bengali" and self.last_captured_text:
             self.play_translation('bn')
             return ""
@@ -1216,35 +1239,45 @@ class SmartAssistant:
             self.play_translation('kn')
             return ""
             
-        elif category == "play_malayalam" and self.last_captured_text:
-            self.play_translation('ml')
-            return ""
-            
-        elif category == "play_punjabi" and self.last_captured_text:
-            self.play_translation('pa')
-            return ""
-            
-        elif category == "play_urdu" and self.last_captured_text:
-            self.play_translation('ur')
-            return ""
-            
         elif category == "translate":
             # Check if we have text to translate
             if not self.last_captured_text:
                 return "There's no captured text to translate. Please capture text first."
                 
-            # Determine target language
+            # More robust language detection for translation requests
             target_lang = None
-            for lang_code, lang_info in SUPPORTED_LANGUAGES.items():
-                if lang_info['name'].lower() in query.lower():
-                    target_lang = lang_code
+            
+            # First try to find explicit language mentions in query
+            lang_patterns = {
+                'en': [r'\benglish\b', r'\bin english\b', r'\bto english\b'],
+                'hi': [r'\bhindi\b', r'\bin hindi\b', r'\bto hindi\b'],
+                'mr': [r'\bmarathi\b', r'\bin marathi\b', r'\bto marathi\b'],
+                'bn': [r'\bbengali\b', r'\bin bengali\b', r'\bto bengali\b'],
+                'gu': [r'\bgujarati\b', r'\bin gujarati\b', r'\bto gujarati\b'],
+                'kn': [r'\bkannada\b', r'\bin kannada\b', r'\bto kannada\b'],
+            }
+            
+            for lang_code, patterns in lang_patterns.items():
+                for pattern in patterns:
+                    if re.search(pattern, query.lower()):
+                        target_lang = lang_code
+                        break
+                if target_lang:
                     break
+            
+            # Fallback to supported languages dictionary if not found in patterns
+            if not target_lang:
+                for lang_code, lang_info in SUPPORTED_LANGUAGES.items():
+                    if lang_info['name'].lower() in query.lower():
+                        target_lang = lang_code
+                        break
                     
             if target_lang:
+                print(f"Translating to {SUPPORTED_LANGUAGES[target_lang]['name']}")
                 self.play_translation(target_lang)
-                return f"Playing the {SUPPORTED_LANGUAGES[target_lang]['name']} translation."
+                return f""
             else:
-                return "Please specify which language you want to translate to."
+                return "Please specify which language you want to translate to. For example, say 'translate to Hindi' or 'play in English'."
                 
         elif category == "read_text":
             return self.get_last_captured_text()
